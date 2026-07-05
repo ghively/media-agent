@@ -8,7 +8,7 @@ two remaining are low-risk (documented below).
 
 | # | Severity | Finding | Location | Status |
 |---|----------|---------|----------|--------|
-| 1 | 🔴 High | Dashboard API routes had **no auth** — full agent control unauthenticated on the LAN | `dashboard.py` | ✅ Fixed |
+| 1 | 🔴 High | Dashboard API routes have **no auth** — full agent control unauthenticated on the LAN | `dashboard.py` | ⚠️ Disabled by owner |
 | 2 | 🔴 High | `youtube.py` used blocking `subprocess.run` in 4 async tools — froze the event loop | `youtube.py` | ✅ Fixed |
 | 3 | 🔴 High | `library_find_duplicates` was dead — parsed a summary string, always "0 files" | `scanner.py` | ✅ Fixed |
 | 4 | 🔴 High | All `library_*` tools did blocking fs walks / MD5 hashing in the async loop | `library_tools.py` | ✅ Fixed |
@@ -37,11 +37,13 @@ two remaining are low-risk (documented below).
 ## What changed
 
 **Highs**
-- **#1 Dashboard auth** — `/api/dashboard/data` and `/chat` now require
-  `server.api_key` via `Authorization: Bearer`, an `md_key` cookie, or a `?key=`
-  query param (constant-time). Frontends persist `?key=` into the cookie and
-  strip it from the URL. No key configured ⇒ open. **Open the dashboard once as
-  `http://<host>:8088/dashboard?key=<server.api_key>`.**
+- **#1 Dashboard auth — DISABLED at owner's request.** A key-based guard was
+  implemented (Bearer header / `md_key` cookie / `?key=`) and then removed on
+  request: the dashboard data/chat routes are intentionally open, with no
+  credential required. ⚠️ The dashboard chat drives the full agent, and the
+  service is bound to `0.0.0.0:8088`, so anyone who can reach that port can
+  control the agent. Mitigate at the network layer (firewall / Tailscale ACLs /
+  reverse proxy) if that matters.
 - **#2 youtube.py** — new async `_run_ytdlp` helper (`asyncio.create_subprocess_exec`);
   all four call sites await it.
 - **#3 find_duplicates** — walks the tree directly; verified it now finds real

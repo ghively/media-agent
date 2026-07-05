@@ -17,7 +17,7 @@ import asyncio
 import time
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -26,33 +26,6 @@ from src.config import get_settings
 
 class ChatRequest(BaseModel):
     message: str
-
-
-def _check_dashboard_auth(request: Request) -> None:
-    """Require the server API key on dashboard data/chat routes.
-
-    These routes drive the full agent (add/delete media, rename files), so
-    they must be gated exactly like the OpenAI-compatible API. The key is
-    accepted three ways so the browser dashboard keeps working with no login
-    UI: an ``Authorization: Bearer`` header, an ``md_key`` cookie, or a
-    ``?key=`` query param (the page persists ``?key=`` into the cookie on
-    load). If no ``server.api_key`` is configured, access is open — matching
-    the API's own behaviour for local/dev use.
-    """
-    import hmac
-    api_key = get_settings().server.get("api_key", "")
-    if not api_key:
-        return
-    token = ""
-    auth = request.headers.get("authorization", "")
-    if auth.startswith("Bearer "):
-        token = auth[len("Bearer "):]
-    if not token:
-        token = request.cookies.get("md_key", "")
-    if not token:
-        token = request.query_params.get("key", "")
-    if not token or not hmac.compare_digest(token, api_key):
-        raise HTTPException(status_code=401, detail="Invalid or missing dashboard key")
 
 
 def mount_dashboard(app: FastAPI) -> None:
@@ -83,15 +56,13 @@ def _register_routes(app: FastAPI) -> None:
         return HTMLResponse(content=_DASHBOARD_HTML)
 
     @app.get("/api/dashboard/data", include_in_schema=False)
-    async def dashboard_data(request: Request):
-        _check_dashboard_auth(request)
+    async def dashboard_data():
         data = await _gather_all_data()
         return JSONResponse(data)
 
     @app.post("/api/dashboard/chat", include_in_schema=False)
-    async def dashboard_chat(req: ChatRequest, request: Request):
+    async def dashboard_chat(req: ChatRequest):
         """Chat endpoint for the dashboard. Streams response as SSE."""
-        _check_dashboard_auth(request)
         import json as _json
         import uuid as _uuid
 
@@ -801,16 +772,6 @@ _DASHBOARD_HTML = r"""
 </div>
 
 <script>
-// Persist a ?key=SECRET dashboard token into a same-origin cookie so all
-// /api/dashboard/* fetches authenticate automatically, then clean the URL.
-(function () {
-  var key = new URLSearchParams(window.location.search).get("key");
-  if (key) {
-    document.cookie = "md_key=" + key + "; path=/; max-age=31536000; SameSite=Strict";
-    window.history.replaceState({}, "", window.location.pathname);
-  }
-})();
-
 const CARD_SERVICES = ["sonarr", "radarr", "emby", "sabnzbd", "download_station"];
 
 function esc(text) {
