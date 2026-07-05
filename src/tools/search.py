@@ -260,18 +260,19 @@ async def download_media(result_id: int) -> str:
     Args:
         result_id: The 1-based index from the search_media results list.
     """
-    # Note: This tool requires the output of the most recent search_media call.
-    # In practice, results would be cached in a module variable or passed via
-    # conversation state. For now this acts as a dispatch placeholder.
+    # This tool cannot download on its own: search results aren't persisted
+    # across tool calls, so there is no position→source mapping to act on.
+    # Be explicit that NOTHING was downloaded and route to the real tool,
+    # rather than implying a download started.
     try:
         return (
-            f"🔄 Download triggered for result #{result_id}.\n\n"
-            f"To complete the action, use the appropriate source-specific tool:\n"
-            f"  • TV show:   add_tv_show(tvdb_id=..., title=...)     [sonarr.py]\n"
-            f"  • Movie:     add_movie(tmdb_id=..., title=...)       [radarr.py]\n"
-            f"  • Torrent:   Run the search again and provide the ID\n\n"
-            f"⚠️  For deep integration, re-run search_media(query) and then "
-            f"call the specific tool for the result you want."
+            f"⚠️  No download was started for result #{result_id} — this dispatcher "
+            f"has no access to the previous search results.\n\n"
+            f"Add it directly with the source-specific tool instead:\n"
+            f"  • TV show:   add_tv_show(tvdb_id=..., title=...)     [sonarr]\n"
+            f"  • Movie:     add_movie(tmdb_id=..., title=...)       [radarr]\n"
+            f"  • Torrent:   download_station_add(url=...)           [download station]\n\n"
+            f"Re-run search_media(query) to get the id/title, then call the tool above."
         )
     except Exception as e:
         return f"❌ Download failed: {type(e).__name__}: {e}"

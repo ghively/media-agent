@@ -56,14 +56,14 @@ export default function ActivityFeed({ activities }) {
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    {getEventBadge(activity.event_type)}
+                    {getEventBadge(activity.event)}
                   </div>
                   <div className="mt-1 text-sm text-dark-200 truncate">
                     {activity.title}
                   </div>
                 </div>
                 <span className="text-xs text-dark-500 whitespace-nowrap ml-2">
-                  {formatTime(activity.timestamp)}
+                  {formatTime(activity.time)}
                 </span>
               </div>
             </div>

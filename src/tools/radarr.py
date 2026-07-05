@@ -127,7 +127,7 @@ async def get_movie_queue() -> str:
 async def get_movie_history() -> str:
     """Show recent Radarr activity."""
     try:
-        result = await _client()._get("/history", params={"pageSize": 15})
+        result = await _client()._get("/history", params={"pageSize": 15, "includeMovie": "true"})
         records = result.get("records", []) if isinstance(result, dict) else []
         if not records:
             return "No recent Radarr activity."

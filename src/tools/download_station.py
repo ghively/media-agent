@@ -1,12 +1,10 @@
 """Synology Download Station API client + LangGraph tool definitions.
 
-Uses Synology DSM V6 API authentication (SID cookie) against the NAS at port 5000.
-The NAS URL is derived from config — the 'url' field under services.sonarr is used
-as the NAS host (port 5000), since Sonarr runs on the same Synology NAS.
-
-For MVP simplicity, this client attempts cookie-based V6 auth. If credentials
-are not configured, it falls back to an unauthenticated mode that may work if
-Download Station has been configured to allow it.
+Uses Synology DSM V6 API authentication (SID) against the NAS. Each tool call
+logs in, performs its request, and logs out within a single HTTP session so no
+SID is left dangling on the NAS. Credentials are sent as POST form data (never
+in the URL query string). Authentication is required — if it fails, the error
+is surfaced rather than silently degrading to an empty result.
 
 Required config (config/settings.yaml):
   services:
@@ -29,8 +27,16 @@ from src.config import get_settings
 DS_API_BASE = "/webapi"
 
 
+class DownloadStationError(Exception):
+    """Raised when Download Station auth or an API call fails cleanly."""
+
+
 class DownloadStationClient:
-    """Async client for Synology Download Station API (V6 SID auth)."""
+    """Async client for Synology Download Station API (V6 SID auth).
+
+    Credentials go in a POST body; every call is a login → request → logout
+    cycle so sessions are not leaked.
+    """
 
     def __init__(
         self,
@@ -46,68 +52,81 @@ class DownloadStationClient:
         self._sid: str | None = None
 
     async def _login(self, client: httpx.AsyncClient) -> bool:
-        """Authenticate with V6 SID login. Returns True on success."""
+        """Authenticate with V6 SID login (credentials in POST body). True on success."""
         if not self.username or not self.password:
             return False
-        login_url = (
-            f"{self.base_url}{DS_API_BASE}/auth.cgi"
-            f"?api=SYNO.API.Auth&version=6&method=login"
-            f"&account={self.username}&passwd={self.password}"
-            f"&session=DownloadStation&format=cookie"
+        resp = await client.post(
+            f"{self.base_url}{DS_API_BASE}/auth.cgi",
+            data={
+                "api": "SYNO.API.Auth",
+                "version": "6",
+                "method": "login",
+                "account": self.username,
+                "passwd": self.password,
+                "session": "DownloadStation",
+                "format": "sid",
+            },
         )
-        resp = await client.get(login_url)
+        resp.raise_for_status()
         data = resp.json()
         if data.get("success"):
             self._sid = data.get("data", {}).get("sid")
-            return True
+            return bool(self._sid)
         return False
 
-    async def _ensure_auth(self, client: httpx.AsyncClient) -> bool:
-        """Ensure we have a valid SID, logging in if needed."""
-        if self._sid:
-            return True
-        return await self._login(client)
+    async def _logout(self, client: httpx.AsyncClient) -> None:
+        """Release the SID. Best-effort — never raises."""
+        if not self._sid:
+            return
+        try:
+            await client.get(
+                f"{self.base_url}{DS_API_BASE}/auth.cgi",
+                params={
+                    "api": "SYNO.API.Auth",
+                    "version": "6",
+                    "method": "logout",
+                    "session": "DownloadStation",
+                    "_sid": self._sid,
+                },
+            )
+        except Exception:
+            pass
+        finally:
+            self._sid = None
 
-    async def _get(self, path: str, params: dict | None = None) -> dict:
-        """Make an authenticated GET request to the DSM API."""
-        request_params = dict(params or {})
+    async def _call(self, path: str, params: dict | None = None, method: str = "GET") -> dict:
+        """Log in, make one authenticated request, then log out.
+
+        Raises DownloadStationError if authentication fails, so callers surface
+        the real cause instead of mistaking it for an empty result.
+        """
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            await self._ensure_auth(client)
-            if self._sid:
+            if not await self._login(client):
+                raise DownloadStationError(
+                    "Download Station authentication failed — check DS_USER/DS_PASS."
+                )
+            try:
+                request_params = dict(params or {})
                 request_params["_sid"] = self._sid
+                url = f"{self.base_url}{DS_API_BASE}{path}"
+                if method == "POST":
+                    resp = await client.post(url, params=request_params)
+                else:
+                    resp = await client.get(url, params=request_params)
+                resp.raise_for_status()
+                return resp.json()
+            finally:
+                await self._logout(client)
 
-            resp = await client.get(
-                f"{self.base_url}{DS_API_BASE}{path}",
-                params=request_params,
-            )
-            resp.raise_for_status()
-            return resp.json()
-
-    async def _post(self, path: str, data: dict | None = None) -> dict:
-        """Make an authenticated POST request to the DSM API."""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            await self._ensure_auth(client)
-            params = {}
-            if self._sid:
-                params["_sid"] = self._sid
-
-            resp = await client.post(
-                f"{self.base_url}{DS_API_BASE}{path}",
-                params=params,
-                data=data,
-            )
-            resp.raise_for_status()
-            return resp.json()
-
-    async def _task_api(self, method: str, version: int = 3, **extra_params) -> dict:
+    async def _task_api(self, action: str, version: int = 3, http_method: str = "GET", **extra_params) -> dict:
         """Call the Download Station Task API."""
         params = {
             "api": "SYNO.DownloadStation.Task",
             "version": version,
-            "method": method,
+            "method": action,
             **extra_params,
         }
-        return await self._get("/DownloadStation/task.cgi", params=params)
+        return await self._call("/DownloadStation/task.cgi", params, method=http_method)
 
 
 def _client() -> DownloadStationClient:
@@ -143,11 +162,10 @@ async def download_station_list() -> str:
             for t in active:
                 title = t.get("title", "Unknown")
                 status = t.get("status", "?")
-                size = t.get("size", "0")
                 downloaded = t.get("additional", {}).get("transfer", {}).get("size_downloaded", "0")
                 progress = t.get("additional", {}).get("transfer", {}).get("downloaded_pct", "?")
                 lines.append(f"  • {title}")
-                lines.append(f"    Status: {status}  |  {progress}%  |  {size} bytes downloaded")
+                lines.append(f"    Status: {status}  |  {progress}%  |  {downloaded} bytes downloaded")
 
         if completed:
             lines.append(f"\n── Completed ({len(completed)}) ──")
@@ -160,6 +178,8 @@ async def download_station_list() -> str:
 
         return "\n".join(lines)
 
+    except DownloadStationError as e:
+        return f"❌ {e}"
     except httpx.ConnectError:
         return "❌ Cannot connect to Synology Download Station."
     except httpx.TimeoutException:
@@ -176,30 +196,13 @@ async def download_station_add(url: str) -> str:
         url: Torrent file URL, magnet link, or NZB URL to download.
     """
     try:
-        params = {
-            "api": "SYNO.DownloadStation.Task",
-            "version": 3,
-            "method": "create",
-            "uri": url,
-        }
-        async with httpx.AsyncClient(timeout=30) as client:
-            ds_client = _client()
-            await ds_client._ensure_auth(client)
-            sid_param = {}
-            if ds_client._sid:
-                sid_param["_sid"] = ds_client._sid
-
-            resp = await client.post(
-                f"{ds_client.base_url}{DS_API_BASE}/DownloadStation/task.cgi",
-                params={**sid_param, **params},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-
+        data = await _client()._task_api("create", http_method="POST", uri=url)
         if data.get("success"):
             return f"✅ Added download to Download Station: {url[:80]}..."
         return f"⚠️ Download Station returned: {data}"
 
+    except DownloadStationError as e:
+        return f"❌ {e}"
     except httpx.ConnectError:
         return "❌ Cannot connect to Synology Download Station."
     except Exception as e:
@@ -214,30 +217,13 @@ async def download_station_pause(task_id: str) -> str:
         task_id: The task ID from download_station_list().
     """
     try:
-        params = {
-            "api": "SYNO.DownloadStation.Task",
-            "version": 3,
-            "method": "pause",
-            "id": task_id,
-        }
-        async with httpx.AsyncClient(timeout=30) as client:
-            ds_client = _client()
-            await ds_client._ensure_auth(client)
-            sid_param = {}
-            if ds_client._sid:
-                sid_param["_sid"] = ds_client._sid
-
-            resp = await client.post(
-                f"{ds_client.base_url}{DS_API_BASE}/DownloadStation/task.cgi",
-                params={**sid_param, **params},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-
+        data = await _client()._task_api("pause", http_method="POST", id=task_id)
         if data.get("success"):
             return f"⏸️  Paused task {task_id}."
         return f"⚠️ Failed to pause task: {data}"
 
+    except DownloadStationError as e:
+        return f"❌ {e}"
     except httpx.ConnectError:
         return "❌ Cannot connect to Synology Download Station."
     except Exception as e:
@@ -252,30 +238,13 @@ async def download_station_resume(task_id: str) -> str:
         task_id: The task ID from download_station_list().
     """
     try:
-        params = {
-            "api": "SYNO.DownloadStation.Task",
-            "version": 3,
-            "method": "resume",
-            "id": task_id,
-        }
-        async with httpx.AsyncClient(timeout=30) as client:
-            ds_client = _client()
-            await ds_client._ensure_auth(client)
-            sid_param = {}
-            if ds_client._sid:
-                sid_param["_sid"] = ds_client._sid
-
-            resp = await client.post(
-                f"{ds_client.base_url}{DS_API_BASE}/DownloadStation/task.cgi",
-                params={**sid_param, **params},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-
+        data = await _client()._task_api("resume", http_method="POST", id=task_id)
         if data.get("success"):
             return f"▶️  Resumed task {task_id}."
         return f"⚠️ Failed to resume task: {data}"
 
+    except DownloadStationError as e:
+        return f"❌ {e}"
     except httpx.ConnectError:
         return "❌ Cannot connect to Synology Download Station."
     except Exception as e:
@@ -291,8 +260,7 @@ async def download_station_info() -> str:
             "version": 1,
             "method": "getinfo",
         }
-        client = _client()
-        result = await client._get("/DownloadStation/info.cgi", params=params)
+        result = await _client()._call("/DownloadStation/info.cgi", params=params)
         info = result.get("data", {})
 
         if not info:
@@ -316,6 +284,8 @@ async def download_station_info() -> str:
 
         return "\n".join(lines)
 
+    except DownloadStationError as e:
+        return f"❌ {e}"
     except httpx.ConnectError:
         return "❌ Cannot connect to Synology Download Station."
     except Exception as e:
@@ -369,6 +339,8 @@ async def download_station_stats() -> str:
 
         return "\n".join(lines)
 
+    except DownloadStationError as e:
+        return f"❌ {e}"
     except httpx.ConnectError:
         return "❌ Cannot connect to Synology Download Station."
     except Exception as e:

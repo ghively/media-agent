@@ -114,8 +114,10 @@ async def get_tv_queue() -> str:
         for r in records:
             title = r.get("title", "Unknown")
             status = r.get("status", "unknown")
-            progress = r.get("sizeleft", "?")
-            lines.append(f"  • {title} — {status}")
+            size = float(r.get("size", 0) or 0)
+            left = float(r.get("sizeleft", 0) or 0)
+            pct = f" — {round((1 - left / size) * 100)}%" if size > 0 else ""
+            lines.append(f"  • {title} — {status}{pct}")
         return "\n".join(lines)
     except httpx.ConnectError:
         return "❌ Cannot connect to Sonarr."
@@ -127,7 +129,7 @@ async def get_tv_queue() -> str:
 async def get_tv_history() -> str:
     """Show recent Sonarr activity (grabs and imports)."""
     try:
-        result = await _client()._get("/history", params={"pageSize": 15})
+        result = await _client()._get("/history", params={"pageSize": 15, "includeSeries": "true"})
         records = result.get("records", []) if isinstance(result, dict) else []
         if not records:
             return "No recent Sonarr activity."
@@ -162,7 +164,7 @@ async def get_tv_calendar() -> str:
         from datetime import datetime, timedelta
         start = datetime.now().strftime("%Y-%m-%d")
         end = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
-        results = await _client()._get("/calendar", params={"start": start, "end": end})
+        results = await _client()._get("/calendar", params={"start": start, "end": end, "includeSeries": "true"})
         if not results:
             return "No episodes airing in the next 7 days."
         lines = [f"Upcoming episodes ({len(results)}):\n"]

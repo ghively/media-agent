@@ -137,8 +137,9 @@ async def _gather_all_data() -> dict:
     disk_task = _gather_disk_space(settings)
     activity, disk_space = await asyncio.gather(activity_task, disk_task)
 
-    # Check local tools availability (no remote health endpoint — just check config)
-    local_tools = _check_local_tools(settings)
+    # Check local tools availability (no remote health endpoint — just check config).
+    # Offloaded: it does a blocking rglob over the ROM library.
+    local_tools = await asyncio.to_thread(_check_local_tools, settings)
 
     all_healthy = all(s.get("status") == "healthy" for s in services.values())
     return {
@@ -267,8 +268,21 @@ async def _gather_sabnzbd(settings) -> dict | None:
             "speed": queue.get("speed", ""),
             "emoji": "✅",
         }
-    except Exception:
-        return None
+    except Exception as e:
+        # Configured but failing — surface it as an error card (counts toward
+        # "degraded") instead of hiding the service as if it were absent.
+        return {
+            "name": "SABnzbd", "status": "error", "queue_count": 0,
+            "queue_items": [], "health": f"❌ {type(e).__name__}: {e}", "emoji": "❌",
+        }
+
+
+def _ds_error(msg: str) -> dict:
+    """Error card for a configured-but-failing Download Station."""
+    return {
+        "name": "Download Station", "status": "error", "queue_count": 0,
+        "queue_items": [], "health": f"❌ {msg}", "emoji": "❌",
+    }
 
 
 async def _gather_download_station(settings) -> dict | None:
@@ -280,16 +294,16 @@ async def _gather_download_station(settings) -> dict | None:
         import httpx
         base = cfg["url"].rstrip("/")
 
-        # Auth: get SID
+        # Auth: get SID (credentials in POST body, not the URL query)
         async with httpx.AsyncClient(timeout=10) as client:
-            auth_resp = await client.get(f"{base}/webapi/auth.cgi", params={
+            auth_resp = await client.post(f"{base}/webapi/auth.cgi", data={
                 "api": "SYNO.API.Auth", "version": "6", "method": "login",
                 "account": cfg["username"], "passwd": cfg["password"],
                 "session": "DownloadStation", "format": "sid",
             })
             auth_data = auth_resp.json()
             if not auth_data.get("success"):
-                return None
+                return _ds_error("authentication failed — check credentials")
             sid = auth_data["data"]["sid"]
 
             # List tasks
@@ -306,7 +320,7 @@ async def _gather_download_station(settings) -> dict | None:
             })
 
         if not task_data.get("success"):
-            return None
+            return _ds_error("task list request rejected by DSM")
 
         tasks = task_data.get("data", {}).get("tasks", [])
         active = [t for t in tasks if t.get("status") == "downloading"]
@@ -330,8 +344,8 @@ async def _gather_download_station(settings) -> dict | None:
             "queue_items": items,
             "emoji": "✅",
         }
-    except Exception:
-        return None
+    except Exception as e:
+        return _ds_error(f"{type(e).__name__}: {e}")
 
 
 def _check_local_tools(settings) -> dict:
@@ -555,13 +569,15 @@ _DASHBOARD_HTML = r"""
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
 <title>Media Agent Dashboard</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background: #0d1117; color: #c9d1d9; min-height: 100vh;
+    -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; overflow-x: hidden;
   }
   .container { max-width: 900px; margin: 0 auto; padding: 16px; }
 
@@ -632,9 +648,9 @@ _DASHBOARD_HTML = r"""
   /* Quick actions */
   .actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .action-btn {
-    padding: 6px 12px; border: 1px solid #30363d; border-radius: 6px;
-    background: #21262d; color: #c9d1d9; font-size: 0.75rem; cursor: pointer;
-    transition: all 0.15s;
+    min-height: 44px; padding: 10px 14px; border: 1px solid #30363d; border-radius: 6px;
+    background: #21262d; color: #c9d1d9; font-size: 0.8rem; cursor: pointer;
+    transition: all 0.15s; touch-action: manipulation; user-select: none;
   }
   .action-btn:hover { border-color: #58a6ff; color: #58a6ff; }
   .action-btn:active { transform: scale(0.97); }
@@ -655,8 +671,8 @@ _DASHBOARD_HTML = r"""
   .chat-msg .label { font-size: 0.65rem; text-transform: uppercase; color: #484f58; margin-bottom: 2px; }
   .chat-input-area { display: flex; border-top: 1px solid #30363d; }
   .chat-input {
-    flex-grow: 1; padding: 10px 12px; border: none; background: #0d1117; color: #c9d1d9;
-    font-size: 0.85rem; font-family: inherit; outline: none;
+    flex-grow: 1; padding: 12px; border: none; background: #0d1117; color: #c9d1d9;
+    font-size: 16px; font-family: inherit; outline: none;
   }
   .chat-send {
     padding: 10px 20px; border: none; background: #238636; color: white;
@@ -689,11 +705,11 @@ _DASHBOARD_HTML = r"""
   <div class="card" style="margin-bottom: 16px;">
     <div class="actions">
       <button class="action-btn" onclick="quickAction('is everything healthy?')">Health Check</button>
-      <button class="action-btn" onclick="quickAction("what's downloading?")">Downloads</button>
+      <button class="action-btn" onclick="quickAction('what is downloading?')">Downloads</button>
       <button class="action-btn" onclick="quickAction('list my tv shows')">TV Shows</button>
       <button class="action-btn" onclick="quickAction('how many movies do I have?')">Movies</button>
       <button class="action-btn" onclick="quickAction('what was recently added to emby?')">Recent</button>
-      <button class="action-btn" onclick="quickAction("what's airing this week?")">Calendar</button>
+      <button class="action-btn" onclick="quickAction('what is airing this week?')">Calendar</button>
       <button class="action-btn" onclick="quickAction('search for missing episodes')">Find Missing</button>
       <button class="action-btn" onclick="quickAction('check disk space')">Disk Space</button>
       <button class="action-btn" onclick="quickAction('check all queues')">All Queues</button>
@@ -925,17 +941,40 @@ async function sendChat() {
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({message: msg}),
     });
-    const data = await resp.json();
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
 
+    // The endpoint streams Server-Sent Events: `data: {content, done, full, error}`.
     document.getElementById("thinking-indicator").remove();
-
     const agentDiv = document.createElement("div");
     agentDiv.className = "chat-msg agent";
-    agentDiv.innerHTML = `<div class="label">Media Agent</div>${esc(data.response)}`;
+    agentDiv.innerHTML = `<div class="label">Media Agent</div><span class="body"></span>`;
+    const body = agentDiv.querySelector(".body");
     msgs.appendChild(agentDiv);
-    msgs.scrollTop = msgs.scrollHeight;
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "", acc = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        let payload;
+        try { payload = JSON.parse(line.slice(6)); } catch (_) { continue; }
+        if (payload.error) { acc = payload.error; }
+        else if (payload.content) { acc += payload.content; }
+        else if (payload.done && !acc) { acc = payload.full || "No response."; }
+        body.textContent = acc;
+        msgs.scrollTop = msgs.scrollHeight;
+      }
+    }
+    if (!acc) body.textContent = "No response.";
   } catch (e) {
-    document.getElementById("thinking-indicator").remove();
+    const ind = document.getElementById("thinking-indicator");
+    if (ind) ind.remove();
     const errDiv = document.createElement("div");
     errDiv.className = "chat-msg system";
     errDiv.textContent = "❌ Failed to get response: " + e.message;

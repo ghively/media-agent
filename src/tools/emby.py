@@ -46,7 +46,8 @@ async def emby_search(query: str) -> str:
         total = result.get("TotalRecordCount", 0)
         if not items:
             return f"No results found for '{query}' in Emby."
-        lines = [f"Found {total} result(s):\n"]
+        header = f"Found {total} result(s)" if total <= len(items) else f"Found {total} result(s), showing first {len(items)}"
+        lines = [header + ":\n"]
         for item in items:
             name = item.get("Name", "Unknown")
             itype = item.get("Type", "")

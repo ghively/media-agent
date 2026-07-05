@@ -352,6 +352,13 @@ def undo_rename(undo_log_path: str) -> str:
         if not new.exists():
             skipped += 1
             continue
+        # Don't clobber: os.rename overwrites the destination atomically on
+        # POSIX, so refuse to restore over a file that now occupies the
+        # original path (data-loss guard).
+        if old.exists():
+            errors.append(f"   ⚠️  {new} → {old}: destination already exists, skipped")
+            skipped += 1
+            continue
         try:
             new.parent.mkdir(parents=True, exist_ok=True)
             os.rename(str(new), str(old))

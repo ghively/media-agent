@@ -64,14 +64,14 @@ async def sabnzbd_queue() -> str:
         status = queue.get("status", "unknown")
         paused = queue.get("paused", False)
         speed = queue.get("speed", "0 B/s")
-        kb_total = queue.get("kb", "0")
-        kb_left = queue.get("mbleft", "0")
+        mb_total = queue.get("mb", "0")
+        mb_left = queue.get("mbleft", "0")
         slots = queue.get("slots", [])
 
         lines = [
             f"SABnzbd Queue — Status: {status}",
             f"  Speed: {speed}  |  Paused: {paused}",
-            f"  Total: {kb_total} MB  |  Left: {kb_left} MB",
+            f"  Total: {mb_total} MB  |  Left: {mb_left} MB",
             f"  Items in queue: {len(slots)}",
         ]
 
@@ -174,15 +174,15 @@ async def sabnzbd_status() -> str:
         speed = queue.get("speed", "0 B/s")
         speed_limit = queue.get("speedlimit", "100")
         paused = queue.get("paused", False)
-        disk_total = queue.get("diskspacetotal", "?")
-        disk_free = queue.get("diskspace1", disk_total)
-        disk_free_norm = queue.get("diskspace2", "?")
+        # diskspace1 = free GB on the complete-download dir; diskspacetotal1 its size.
+        disk_free = queue.get("diskspace1", "?")
+        disk_total = queue.get("diskspacetotal1", "?")
 
         lines.append(f"  Status:            {status}")
         lines.append(f"  Paused:            {paused}")
         lines.append(f"  Current Speed:     {speed}")
         lines.append(f"  Speed Limit:       {speed_limit}%")
-        lines.append(f"  Free Disk:         {disk_free} {disk_free_norm}")
+        lines.append(f"  Free Disk:         {disk_free} GB free of {disk_total} GB")
 
         # Server info from server_stats
         servers = server_data.get("servers", [])
@@ -200,7 +200,7 @@ async def sabnzbd_status() -> str:
         mb_total = queue.get("mb", "0")
         mb_left = queue.get("mbleft", "0")
         lines.append("")
-        lines.append(f"  Total Downloaded:  {mb_total} MB")
+        lines.append(f"  Queue Size:        {mb_total} MB")
         lines.append(f"  Remaining:         {mb_left} MB")
 
         return "\n".join(lines)

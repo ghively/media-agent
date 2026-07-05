@@ -166,7 +166,8 @@ async def audible_download_new() -> str:
         # Save state
         state_file.write_text(json.dumps(list(downloaded)))
 
-        return f"✅ Downloaded {success_count} new audiobook(s):\n" + "\n".join(results)
+        emoji = "✅" if success_count else "⚠️"
+        return f"{emoji} Downloaded {success_count} new audiobook(s):\n" + "\n".join(results)
 
     except Exception as e:
         return f"❌ Audible sync failed: {type(e).__name__}: {e}"

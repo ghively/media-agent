@@ -131,40 +131,37 @@ def find_orphans(cross_ref: str) -> str:
     return "\n".join(lines)
 
 
-def find_duplicates(inventory: str) -> str:
-    """Find duplicate files in the inventory by comparing size + hash.
+def find_duplicates(path: str) -> str:
+    """Find duplicate files under a directory by grouping on size, then
+    confirming with a fast content hash.
 
-    Accepts the *raw inventory* string from build_inventory() and reports
-    file groups that are likely duplicates.
-
-    Because the inventory is a text string, this function re-parses it
-    to extract file paths and sizes, groups by size, and reports groups
-    with more than one file at the same size as potential duplicates.
+    Walks the tree directly (using the same file filters as build_inventory)
+    rather than re-parsing a summary string, so it actually inspects files.
+    Reports each group of 2+ files sharing an identical size and head/tail
+    hash as likely duplicates.
     """
-    # Re-parse inventory text to extract file paths
-    paths = []
-    for line in inventory.split("\n"):
-        line = line.strip()
-        if line.startswith("/") or line.startswith("./"):
-            # This is likely a path line from inventory; we can't reliably
-            # re-parse the full text, so we do a best-effort extraction.
-            # The real inventory is already available on disk; this is a
-            # fallback for LLM-based invocation.
-            paths.append(line)
+    root = Path(path)
+    if not root.exists():
+        return f"❌ Path does not exist: {path}"
+    if not root.is_dir():
+        return f"❌ Not a directory: {path}"
 
-    # Group by file extension for a reasonable-length report
-    ext_groups = defaultdict(list)
-    for p in paths:
-        ext = Path(p).suffix.lower()
-        ext_groups[ext].append(p)
-
+    # Collect candidate files grouped by size (same skip filters as build_inventory)
     size_groups = defaultdict(list)
-    for p in paths:
+    scanned = 0
+    for entry in root.rglob("*"):
+        if not entry.is_file():
+            continue
+        if entry.name.startswith("."):
+            continue
+        if entry.suffix.lower() in (".nfo", ".srt", ".sub", ".idx", ".jpg", ".png", ".txt"):
+            continue
         try:
-            sz = os.path.getsize(p)
-            size_groups[sz].append(p)
+            sz = entry.stat().st_size
         except OSError:
-            pass
+            continue
+        scanned += 1
+        size_groups[sz].append(str(entry))
 
     dupes_found = False
     lines = [
@@ -172,27 +169,22 @@ def find_duplicates(inventory: str) -> str:
         "━━━━━━━━━━━━━━━━━━━━━━━━",
     ]
 
-    for size, group in sorted(size_groups.items()):
+    # Largest first — biggest space wins are most actionable.
+    for size, group in sorted(size_groups.items(), reverse=True):
         if len(group) < 2:
             continue
-        # Quick content hash check
-        actual_dupes = []
+        # Confirm same-size candidates with a quick content hash.
         hashes = defaultdict(list)
         for fp in group:
             try:
-                h = _quick_hash(fp)
-                hashes[h].append(fp)
+                hashes[_quick_hash(fp)].append(fp)
             except OSError:
                 pass
-        for h, hgroup in hashes.items():
-            if len(hgroup) >= 2:
-                actual_dupes.append(hgroup)
-
-        if not actual_dupes:
-            continue
-        dupes_found = True
-        for hgroup in actual_dupes:
-            lines.append(f"")
+        for hgroup in hashes.values():
+            if len(hgroup) < 2:
+                continue
+            dupes_found = True
+            lines.append("")
             lines.append(f"   ⚠️  {_format_size(size)} — {len(hgroup)} copies:")
             for fp in hgroup:
                 lines.append(f"       • {fp}")
@@ -202,7 +194,7 @@ def find_duplicates(inventory: str) -> str:
         lines.append("   ✅ No duplicate files detected by size+hash.")
 
     lines.append("")
-    lines.append(f"   (Searched {len(paths)} files across {len(size_groups)} unique sizes)")
+    lines.append(f"   (Searched {scanned} files across {len(size_groups)} unique sizes)")
     return "\n".join(lines)
 
 

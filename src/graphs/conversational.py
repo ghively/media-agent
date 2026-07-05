@@ -40,21 +40,29 @@ Guidelines:
 def create_agent():
     """Create the conversational agent.
 
-    Uses the local LLM directly. The circuit breaker in MediaLLM handles
-    failover — we expose it via get_llm() which returns the appropriate
-    BaseChatModel. We wrap it in a thin adapter so LangGraph gets a
-    BaseChatModel while the circuit breaker tracks health.
+    Primary path is the local Ollama model. When a hosted fallback is
+    configured (llm.hosted_url + llm.hosted_key), the model is wrapped with
+    LangChain's ``with_fallbacks`` so a failed local invocation automatically
+    retries against the hosted model — the real, per-call failover the old
+    unused circuit breaker only described. Tools are bound to each model up
+    front because a fallback-wrapped runnable can't be re-bound by
+    create_react_agent.
 
-    Note: For full circuit-breaker integration, the agent would need to
-    call get_llm() on every invocation. Since create_react_agent binds
-    the LLM at construction time, we use local_llm (the common path) and
-    rely on Ollama's own retry behavior. The hosted fallback is available
-    via the MEDIA_AGENT_API_KEY bypass in Open WebUI if local is down.
+    With no fallback configured (the default), behaviour is unchanged: the
+    plain local model is handed to create_react_agent as before.
     """
     llm = create_llm()
-    # Use the local LLM directly — it's the primary path.
-    # The MediaLLM wrapper is available for manual failover.
     base_llm = llm.local_llm
+
+    if llm.fallback_llm is not None:
+        try:
+            base_llm = llm.local_llm.bind_tools(all_tools).with_fallbacks(
+                [llm.fallback_llm.bind_tools(all_tools)]
+            )
+        except Exception:
+            # If this langgraph/langchain build doesn't accept a pre-bound
+            # fallback runnable, degrade to the safe local-only path.
+            base_llm = llm.local_llm
 
     agent = create_react_agent(
         base_llm,
