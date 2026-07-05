@@ -166,8 +166,9 @@ async def _gather_all_data() -> dict:
     disk_task = _gather_disk_space(settings)
     activity, disk_space = await asyncio.gather(activity_task, disk_task)
 
-    # Check local tools availability (no remote health endpoint — just check config)
-    local_tools = _check_local_tools(settings)
+    # Check local tools availability (no remote health endpoint — just check config).
+    # Offloaded: it does a blocking rglob over the ROM library.
+    local_tools = await asyncio.to_thread(_check_local_tools, settings)
 
     all_healthy = all(s.get("status") == "healthy" for s in services.values())
     return {
@@ -296,8 +297,21 @@ async def _gather_sabnzbd(settings) -> dict | None:
             "speed": queue.get("speed", ""),
             "emoji": "✅",
         }
-    except Exception:
-        return None
+    except Exception as e:
+        # Configured but failing — surface it as an error card (counts toward
+        # "degraded") instead of hiding the service as if it were absent.
+        return {
+            "name": "SABnzbd", "status": "error", "queue_count": 0,
+            "queue_items": [], "health": f"❌ {type(e).__name__}: {e}", "emoji": "❌",
+        }
+
+
+def _ds_error(msg: str) -> dict:
+    """Error card for a configured-but-failing Download Station."""
+    return {
+        "name": "Download Station", "status": "error", "queue_count": 0,
+        "queue_items": [], "health": f"❌ {msg}", "emoji": "❌",
+    }
 
 
 async def _gather_download_station(settings) -> dict | None:
@@ -309,16 +323,16 @@ async def _gather_download_station(settings) -> dict | None:
         import httpx
         base = cfg["url"].rstrip("/")
 
-        # Auth: get SID
+        # Auth: get SID (credentials in POST body, not the URL query)
         async with httpx.AsyncClient(timeout=10) as client:
-            auth_resp = await client.get(f"{base}/webapi/auth.cgi", params={
+            auth_resp = await client.post(f"{base}/webapi/auth.cgi", data={
                 "api": "SYNO.API.Auth", "version": "6", "method": "login",
                 "account": cfg["username"], "passwd": cfg["password"],
                 "session": "DownloadStation", "format": "sid",
             })
             auth_data = auth_resp.json()
             if not auth_data.get("success"):
-                return None
+                return _ds_error("authentication failed — check credentials")
             sid = auth_data["data"]["sid"]
 
             # List tasks
@@ -335,7 +349,7 @@ async def _gather_download_station(settings) -> dict | None:
             })
 
         if not task_data.get("success"):
-            return None
+            return _ds_error("task list request rejected by DSM")
 
         tasks = task_data.get("data", {}).get("tasks", [])
         active = [t for t in tasks if t.get("status") == "downloading"]
@@ -359,8 +373,8 @@ async def _gather_download_station(settings) -> dict | None:
             "queue_items": items,
             "emoji": "✅",
         }
-    except Exception:
-        return None
+    except Exception as e:
+        return _ds_error(f"{type(e).__name__}: {e}")
 
 
 def _check_local_tools(settings) -> dict:

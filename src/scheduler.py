@@ -73,11 +73,16 @@ class MediaScheduler:
         return f"▶️ Scheduler started with {job_count} job(s)."
 
     def stop(self) -> str:
-        """Stop the scheduler and remove all jobs.  Returns a status message."""
+        """Stop the scheduler and clear all jobs.  Returns a status message."""
         if not self._running:
             return "ℹ️ Scheduler is not running."
         self._scheduler.shutdown(wait=False)
         self._running = False
+        self._jobs.clear()
+        self._callbacks.clear()
+        # A shut-down AsyncIOScheduler cannot be restarted, so replace it with a
+        # fresh instance to keep start() usable after a stop().
+        self._scheduler = AsyncIOScheduler()
         return "⏹️ Scheduler stopped."
 
     # ── job management ────────────────────────────────────────────────────

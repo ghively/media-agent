@@ -78,13 +78,19 @@ async def rom_download(identifier: str, platform: str = "") -> str:
         capped = len(sliced)
 
         lines = [f"Downloading {capped} file(s) from '{identifier}'...\n"]
+        failed = 0
         for f in sliced:
             fname = f.get("name", "")
-            item.download(fname, destdir=str(dest), silent=True)
-            downloaded += 1
-            lines.append(f"  ✓ {fname}")
+            try:
+                item.download(fname, destdir=str(dest), silent=True)
+                downloaded += 1
+                lines.append(f"  ✓ {fname}")
+            except Exception as fe:
+                failed += 1
+                lines.append(f"  ❌ {fname}: {fe}")
 
-        lines.append(f"\n✅ Downloaded {downloaded} files to {dest}")
+        emoji = "✅" if downloaded else "⚠️"
+        lines.append(f"\n{emoji} Downloaded {downloaded} file(s) to {dest}" + (f" ({failed} failed)" if failed else ""))
         if total > capped:
             lines.append(f"   ({total - capped} more files skipped — download individually)")
         lines.append("\nRun `rom_verify_dat` to verify checksums against No-Intro DATs.")

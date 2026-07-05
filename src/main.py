@@ -74,8 +74,23 @@ def _run_server(host: str, port: int):
             await search_missing_movies.ainvoke({})
             return "Missing search complete"
 
+        async def _daily_cleanup():
+            # Read-only daily report: surface health so problems are logged.
+            from src.tools.health import check_all_health
+            result = await check_all_health.ainvoke({})
+            logger.info("Scheduled daily cleanup/health: %s", result[:200])
+            return "Daily cleanup complete"
+
+        async def _weekly_scan():
+            from src.tools.emby import emby_scan
+            result = await emby_scan.ainvoke({})
+            logger.info("Scheduled weekly library scan: %s", result[:200])
+            return "Weekly scan triggered"
+
         sched.add_job("health_check", _health_check, "health_check")
         sched.add_job("missing_search", _missing_search, "missing_episodes")
+        sched.add_job("daily_cleanup", _daily_cleanup, "daily_cleanup")
+        sched.add_job("weekly_scan", _weekly_scan, "weekly_scan")
 
         # Start scheduler — must be called from within the running event loop,
         # not a separate thread (AsyncIOScheduler binds to the current loop)
@@ -83,7 +98,7 @@ def _run_server(host: str, port: int):
         async def _start_scheduler():
             sched.start()
 
-        logger.info("Scheduler configured with 2 default jobs")
+        logger.info("Scheduler configured with %d default jobs", sched.job_count)
     except Exception as e:
         import logging
         logging.basicConfig(level=logging.WARNING)
