@@ -1,0 +1,40 @@
+# Media Agent Configuration
+# Copy to settings.yaml and fill in real values (or use env vars)
+
+server:
+  host: "0.0.0.0"
+  port: 8088
+  api_key: "${MEDIA_AGENT_API_KEY}"
+
+llm:
+  ollama_url: "http://agent-lab-ollama-1:11435"
+  ollama_model: "qwen3.5:9b"
+  hosted_url: ""
+  hosted_key: ""
+  hosted_model: ""
+  temperature: 0
+  timeout: 15
+
+services:
+  sonarr:
+    url: "http://192.168.0.133:8989"
+    api_key: "${SONARR_API_KEY}"
+  radarr:
+    url: "http://192.168.0.133:8310"
+    api_key: "${RADARR_API_KEY}"
+  emby:
+    url: "http://192.168.0.144:8096"
+    api_key: "${EMBY_API_KEY}"
+  sabnzbd:
+    url: "http://192.168.0.133:8080"
+    api_key: "${SABNZBD_API_KEY}"
+
+scheduler:
+  enabled: false
+  jobs: []
+
+library:
+  media_root: "/media"
+  naming_conventions:
+    movies: "/movies/{title} ({year})/{title} ({year}).{ext}"
+    tv: "/tv/{show}/Season {season:02d}/{show} - s{season:02d}e{episode:02d} - {title}.{ext}"
