@@ -86,9 +86,10 @@ async def _gather_all_data() -> dict:
     radarr_task = _gather_radarr(settings)
     emby_task = _gather_emby(settings)
     sabnzbd_task = _gather_sabnzbd(settings)
+    download_station_task = _gather_download_station(settings)
 
-    sonarr_data, radarr_data, emby_data, sabnzbd_data = await asyncio.gather(
-        sonarr_task, radarr_task, emby_task, sabnzbd_task
+    sonarr_data, radarr_data, emby_data, sabnzbd_data, ds_data = await asyncio.gather(
+        sonarr_task, radarr_task, emby_task, sabnzbd_task, download_station_task
     )
 
     services = {
@@ -98,11 +99,16 @@ async def _gather_all_data() -> dict:
     }
     if sabnzbd_data:
         services["sabnzbd"] = sabnzbd_data
+    if ds_data:
+        services["download_station"] = ds_data
 
     # Collect activity + disk space
     activity_task = _gather_activity(settings)
     disk_task = _gather_disk_space(settings)
     activity, disk_space = await asyncio.gather(activity_task, disk_task)
+
+    # Check local tools availability (no remote health endpoint — just check config)
+    local_tools = _check_local_tools(settings)
 
     all_healthy = all(s.get("status") == "healthy" for s in services.values())
     return {
@@ -111,6 +117,7 @@ async def _gather_all_data() -> dict:
         "services": services,
         "activity": activity,
         "disk_space": disk_space,
+        "local_tools": local_tools,
     }
 
 
@@ -232,6 +239,140 @@ async def _gather_sabnzbd(settings) -> dict | None:
         }
     except Exception:
         return None
+
+
+async def _gather_download_station(settings) -> dict | None:
+    """Check Synology Download Station connectivity and list active tasks."""
+    try:
+        cfg = settings.download_station
+        if not cfg.get("url") or not cfg.get("username"):
+            return None
+        import httpx
+        base = cfg["url"].rstrip("/")
+
+        # Auth: get SID
+        async with httpx.AsyncClient(timeout=10) as client:
+            auth_resp = await client.get(f"{base}/webapi/auth.cgi", params={
+                "api": "SYNO.API.Auth", "version": "6", "method": "login",
+                "account": cfg["username"], "passwd": cfg["password"],
+                "session": "DownloadStation", "format": "sid",
+            })
+            auth_data = auth_resp.json()
+            if not auth_data.get("success"):
+                return None
+            sid = auth_data["data"]["sid"]
+
+            # List tasks
+            task_resp = await client.get(f"{base}/webapi/entry.cgi", params={
+                "api": "SYNO.DownloadStation.Task", "version": "2",
+                "method": "list", "additional": "detail",
+                "_sid": sid,
+            })
+            task_data = task_resp.json()
+
+            # Logout
+            await client.get(f"{base}/webapi/auth.cgi", params={
+                "api": "SYNO.API.Auth", "version": "6", "method": "logout", "_sid": sid,
+            })
+
+        if not task_data.get("success"):
+            return None
+
+        tasks = task_data.get("data", {}).get("tasks", [])
+        active = [t for t in tasks if t.get("status") == "downloading"]
+        items = []
+        for t in active[:5]:
+            additional = t.get("additional", {}).get("detail", {})
+            size = additional.get("size", 0)
+            size_downloaded = additional.get("size_downloaded", 0)
+            progress = round(size_downloaded / size * 100) if size else 0
+            size_mb = size / 1024 / 1024 if size else 0
+            items.append({
+                "name": t.get("title", "Unknown"),
+                "progress": progress,
+                "size": f"{size_mb:.0f} MB" if size_mb > 1 else "",
+                "status": t.get("status", "unknown"),
+            })
+        return {
+            "name": "Download Station",
+            "status": "healthy",
+            "queue_count": len(active),
+            "queue_items": items,
+            "emoji": "✅",
+        }
+    except Exception:
+        return None
+
+
+def _check_local_tools(settings) -> dict:
+    """Check availability of local-only tools (YouTube, Audible, ROMs).
+    These don't have remote health endpoints — we check if their config
+    and external dependencies exist."""
+    from pathlib import Path
+    import shutil
+
+    tools = {}
+
+    # YouTube — check if yt-dlp is installed
+    yt_cfg = settings.youtube
+    ytdlp_available = shutil.which("yt-dlp") is not None
+    subs_file = Path(yt_cfg.get("subscriptions_file", "/state/youtube_subs.json"))
+    subs_count = 0
+    if subs_file.exists():
+        try:
+            import json
+            subs = json.loads(subs_file.read_text())
+            subs_count = len(subs) if isinstance(subs, list) else len(subs.keys()) if isinstance(subs, dict) else 0
+        except Exception:
+            pass
+    tools["youtube"] = {
+        "name": "YouTube",
+        "status": "available" if ytdlp_available else "error",
+        "emoji": "✅" if ytdlp_available else "❌",
+        "info": f"yt-dlp {'installed' if ytdlp_available else 'missing'}, {subs_count} subscriptions",
+    }
+
+    # Audible — check if audible-cli is installed and auth exists
+    audible_cfg = settings.audible
+    audible_available = shutil.which("audible") is not None
+    auth_file = Path(audible_cfg.get("auth_dir", "/config/audible")) / "auth.json"
+    auth_status = "authenticated" if auth_file.exists() else "not authenticated"
+    tools["audible"] = {
+        "name": "Audible",
+        "status": "available" if (audible_available and auth_file.exists()) else
+                  ("warning" if audible_available else "error"),
+        "emoji": "✅" if audible_available and auth_file.exists() else
+                  ("⚠️" if audible_available else "❌"),
+        "info": f"audible-cli {'installed' if audible_available else 'missing'}, {auth_status}",
+    }
+
+    # ROMs — check if internetarchive is installed
+    ia_available = shutil.which("ia") is not None
+    roms_cfg = settings.roms
+    rom_dir = Path(roms_cfg.get("library_dir", "/media/roms"))
+    rom_count = 0
+    if rom_dir.exists():
+        try:
+            rom_count = sum(1 for _ in rom_dir.rglob("*") if _.is_file())
+        except Exception:
+            pass
+    tools["roms"] = {
+        "name": "Classic Games (ROMs)",
+        "status": "available" if ia_available else "error",
+        "emoji": "✅" if ia_available else "❌",
+        "info": f"internetarchive {'installed' if ia_available else 'missing'}, {rom_count} files in library",
+    }
+
+    # Bandcamp — check if bandcamp-dl is installed
+    bc_available = shutil.which("bandcamp-dl") is not None
+    tools["bandcamp"] = {
+        "name": "Bandcamp",
+        "status": "available" if bc_available else "error",
+        "emoji": "✅" if bc_available else "❌",
+        "info": f"bandcamp-dl {'installed' if bc_available else 'missing'}",
+    }
+
+    return tools
 
 
 async def _gather_activity(settings) -> list:
@@ -523,6 +664,10 @@ _DASHBOARD_HTML = r"""
       <button class="action-btn" onclick="quickAction('how many movies do I have?')">Movies</button>
       <button class="action-btn" onclick="quickAction('what was recently added to emby?')">Recent</button>
       <button class="action-btn" onclick="quickAction("what's airing this week?")">Calendar</button>
+      <button class="action-btn" onclick="quickAction('search for missing episodes')">Find Missing</button>
+      <button class="action-btn" onclick="quickAction('check disk space')">Disk Space</button>
+      <button class="action-btn" onclick="quickAction('check all queues')">All Queues</button>
+      <button class="action-btn" onclick="quickAction('list download station tasks')">Torrents</button>
     </div>
   </div>
 
@@ -544,6 +689,16 @@ _DASHBOARD_HTML = r"""
       <div class="card-header"><h2 id="sabnzbd-title">⚡ SABnzbd</h2><span id="sabnzbd-badge" class="badge badge-error">...</span></div>
       <div id="sabnzbd-body" class="card-body"></div>
     </div>
+    <div class="card" id="download-station-card">
+      <div class="card-header"><h2 id="download-station-title">🧲 Download Station</h2><span id="download-station-badge" class="badge badge-error">...</span></div>
+      <div id="download-station-body" class="card-body"></div>
+    </div>
+  </div>
+
+  <!-- Local Tools Status -->
+  <div class="card" style="margin-bottom: 16px;">
+    <div class="card-header"><h2>🛠️ Content Providers</h2></div>
+    <div id="local-tools" style="display: flex; gap: 12px; flex-wrap: wrap;"></div>
   </div>
 
   <!-- Activity Feed -->
@@ -573,7 +728,7 @@ _DASHBOARD_HTML = r"""
 </div>
 
 <script>
-const CARD_SERVICES = ["sonarr", "radarr", "emby", "sabnzbd"];
+const CARD_SERVICES = ["sonarr", "radarr", "emby", "sabnzbd", "download_station"];
 
 function esc(text) {
   const d = document.createElement("div");
@@ -582,6 +737,7 @@ function esc(text) {
 }
 
 function badge(status) {
+  const display = status === "download_station" ? "download-station" : status;
   return `<span class="badge badge-${status}">${status}</span>`;
 }
 
@@ -590,14 +746,18 @@ function progressBar(pct) {
 }
 
 function renderService(key, svc) {
+  // Map service keys to element IDs (download_station → download-station)
+  const elemKey = key.replace(/_/g, "-");
+  const card = document.getElementById(elemKey + "-card");
   if (!svc) {
-    document.getElementById(key + "-card").style.display = "none";
+    if (card) card.style.display = "none";
     return;
   }
-  document.getElementById(key + "-card").style.display = "";
-  document.getElementById(key + "-title").textContent = `${svc.emoji} ${esc(svc.name)}`;
-  document.getElementById(key + "-badge").className = `badge badge-${svc.status}`;
-  document.getElementById(key + "-badge").textContent = svc.status;
+  if (card) card.style.display = "";
+  document.getElementById(elemKey + "-title").textContent = `${svc.emoji} ${esc(svc.name)}`;
+  const badgeEl = document.getElementById(elemKey + "-badge");
+  badgeEl.className = `badge badge-${svc.status}`;
+  badgeEl.textContent = svc.status;
 
   let body = "";
   if (svc.library_count !== undefined) {
@@ -627,7 +787,23 @@ function renderService(key, svc) {
   if (svc.speed) {
     body += `<div class="queue-meta" style="margin-top:6px;">Speed: ${esc(svc.speed)} KB/s</div>`;
   }
-  document.getElementById(key + "-body").innerHTML = body;
+  document.getElementById(elemKey + "-body").innerHTML = body;
+}
+
+function renderLocalTools(tools) {
+  const el = document.getElementById("local-tools");
+  if (!tools) {
+    el.innerHTML = '<div class="empty">Checking...</div>';
+    return;
+  }
+  let html = "";
+  for (const [key, tool] of Object.entries(tools)) {
+    html += `<div style="flex: 1; min-width: 140px; padding: 8px; background: #0d1117; border-radius: 6px; border: 1px solid #30363d;">
+      <div style="font-size: 0.8rem; font-weight: 600; margin-bottom: 3px;">${tool.emoji} ${esc(tool.name)}</div>
+      <div style="font-size: 0.68rem; color: #8b949e;">${esc(tool.info)}</div>
+    </div>`;
+  }
+  el.innerHTML = html;
 }
 
 function renderActivity(items) {
@@ -667,6 +843,7 @@ function renderData(data) {
     renderService(key, data.services[key]);
   }
   renderActivity(data.activity);
+  renderLocalTools(data.local_tools);
 }
 
 async function fetchData() {
