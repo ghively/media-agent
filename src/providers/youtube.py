@@ -13,15 +13,42 @@ Required config (config/settings.yaml):
 Note: yt-dlp must be installed on the system ('pip install yt-dlp' or
 'apt install yt-dlp').
 """
+import asyncio
 import json
 import os
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 from langchain_core.tools import tool
 
 from src.config import get_settings
+
+
+async def _run_ytdlp(cmd: list[str], timeout: int) -> SimpleNamespace:
+    """Run a yt-dlp command without blocking the event loop.
+
+    Mirrors subprocess.run's result shape (.returncode/.stdout/.stderr, text)
+    but uses asyncio so concurrent requests and the scheduler keep running.
+    Raises asyncio.TimeoutError on timeout and FileNotFoundError if yt-dlp
+    is not installed.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.communicate()
+        raise
+    return SimpleNamespace(
+        returncode=proc.returncode,
+        stdout=stdout.decode(errors="replace"),
+        stderr=stderr.decode(errors="replace"),
+    )
 
 
 # ── Default paths ───────────────────────────────────────────────────────────
@@ -116,13 +143,8 @@ async def youtube_download(url: str, content_type: str = "video") -> str:
         # Add the URL
         cmd.append(url)
 
-        # Run yt-dlp
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=600,  # 10 min timeout for downloads
-        )
+        # Run yt-dlp (async — does not block the event loop)
+        result = await _run_ytdlp(cmd, timeout=600)  # 10 min timeout for downloads
 
         if result.returncode != 0:
             stderr = result.stderr.strip() or "no error output"
@@ -135,7 +157,7 @@ async def youtube_download(url: str, content_type: str = "video") -> str:
 
         return f"✅ Download completed successfully (saved to {download_dir})."
 
-    except subprocess.TimeoutExpired:
+    except asyncio.TimeoutError:
         return "❌ yt-dlp timed out (10 min limit). The download may still be running."
     except FileNotFoundError:
         return "❌ yt-dlp not found. Install it: pip install yt-dlp  or  apt install yt-dlp"
@@ -165,7 +187,7 @@ async def youtube_add_subscription(url: str, content_type: str = "concert") -> s
             "--skip-download",
             url,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = await _run_ytdlp(cmd, timeout=30)
 
         if result.returncode != 0:
             # Fall back to using the URL as-is
@@ -203,7 +225,7 @@ async def youtube_add_subscription(url: str, content_type: str = "concert") -> s
             f"Total subscriptions: {len(subs)}"
         )
 
-    except subprocess.TimeoutExpired:
+    except asyncio.TimeoutError:
         return "❌ yt-dlp timed out resolving channel URL."
     except FileNotFoundError:
         return "❌ yt-dlp not found. Install it: pip install yt-dlp"
@@ -244,7 +266,7 @@ async def youtube_check_subscriptions() -> str:
                     "--skip-download",
                     url,
                 ]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                result = await _run_ytdlp(cmd, timeout=30)
 
                 if result.returncode != 0:
                     lines.append(f"  ⚠️ {name}: yt-dlp error")
@@ -282,7 +304,7 @@ async def youtube_check_subscriptions() -> str:
                 else:
                     lines.append(f"  ✓ {name}: checked")
 
-            except subprocess.TimeoutExpired:
+            except asyncio.TimeoutError:
                 lines.append(f"  ⚠️ {name}: timed out")
             except Exception as exc:
                 lines.append(f"  ⚠️ {name}: {exc}")
@@ -397,7 +419,7 @@ async def youtube_get_info(url: str) -> str:
             "--skip-download",
             url,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = await _run_ytdlp(cmd, timeout=30)
 
         if result.returncode != 0:
             return f"❌ Failed to get video info: {result.stderr.strip()[:300]}"
@@ -447,7 +469,7 @@ async def youtube_get_info(url: str) -> str:
 
         return "\n".join(output)
 
-    except subprocess.TimeoutExpired:
+    except asyncio.TimeoutError:
         return "❌ yt-dlp timed out fetching video info."
     except FileNotFoundError:
         return "❌ yt-dlp not found. Install it: pip install yt-dlp"
