@@ -54,8 +54,8 @@ def _register_routes(app: FastAPI) -> None:
 
 async def _gather_health_data() -> dict:
     """Collect live status from all services asynchronously."""
-    from src.tools.sonarr import SonarrClient, get_tv_health, get_tv_queue
-    from src.tools.radarr import RadarrClient, get_movie_health, get_movie_queue
+    from src.tools.sonarr import SonarrClient
+    from src.tools.radarr import RadarrClient
     from src.tools.emby import EmbyClient
 
     settings = get_settings()
@@ -65,14 +65,17 @@ async def _gather_health_data() -> dict:
 
     # Sonarr
     try:
-        health_text = await get_tv_health()
-        queue_text = await get_tv_queue()
-        sonarr_ok = "✅" in health_text
+        sonarr_cfg = settings.sonarr
+        client = SonarrClient(sonarr_cfg["url"], sonarr_cfg["api_key"])
+        health = await client._get("/health")
+        queue = await client._get("/queue")
+        queue_records = queue if isinstance(queue, list) else queue.get("records", [])
+        sonarr_ok = not health  # empty health list = no issues
         services["sonarr"] = {
             "name": "Sonarr",
             "status": "healthy" if sonarr_ok else "warning",
-            "health": health_text,
-            "queue": queue_text,
+            "health": "✅ All checks passing" if sonarr_ok else "\n".join(f"⚠️ {h.get('message', 'unknown')}" for h in health),
+            "queue": f"{len(queue_records)} item(s)" if queue_records else "Empty",
             "emoji": "✅" if sonarr_ok else "⚠️",
         }
     except Exception as e:
@@ -86,14 +89,17 @@ async def _gather_health_data() -> dict:
 
     # Radarr
     try:
-        health_text = await get_movie_health()
-        queue_text = await get_movie_queue()
-        radarr_ok = "✅" in health_text
+        radarr_cfg = settings.radarr
+        client = RadarrClient(radarr_cfg["url"], radarr_cfg["api_key"])
+        health = await client._get("/health")
+        queue = await client._get("/queue")
+        queue_records = queue if isinstance(queue, list) else queue.get("records", [])
+        radarr_ok = not health
         services["radarr"] = {
             "name": "Radarr",
             "status": "healthy" if radarr_ok else "warning",
-            "health": health_text,
-            "queue": queue_text,
+            "health": "✅ All checks passing" if radarr_ok else "\n".join(f"⚠️ {h.get('message', 'unknown')}" for h in health),
+            "queue": f"{len(queue_records)} item(s)" if queue_records else "Empty",
             "emoji": "✅" if radarr_ok else "⚠️",
         }
     except Exception as e:
@@ -107,8 +113,8 @@ async def _gather_health_data() -> dict:
 
     # Emby
     try:
-        emby_settings = settings.emby
-        client = EmbyClient(emby_settings["url"], emby_settings["api_key"])
+        emby_cfg = settings.emby
+        client = EmbyClient(emby_cfg["url"], emby_cfg["api_key"])
         libraries = await client._get("/emby/Library/VirtualFolders")
         emby_ok = isinstance(libraries, list)
         services["emby"] = {
