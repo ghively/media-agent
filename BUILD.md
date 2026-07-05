@@ -1,4 +1,9 @@
-# Codex Build Instructions for media-agent MVP
+# Codex Build Instructions for media-agent MVP (Historical)
+
+> **⚠️ HISTORICAL DOCUMENT** — These were the original build instructions used to scaffold the MVP.  
+> The system has since grown to 49 tools across Phases 1–4.  
+>  
+> **For current development guidance:** See [docs/development-guide.md](docs/development-guide.md) and [CLAUDE.md](CLAUDE.md)
 
 ## Context
 

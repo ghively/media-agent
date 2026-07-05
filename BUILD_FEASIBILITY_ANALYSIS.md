@@ -1,4 +1,6 @@
-# Media Agent — Build Feasibility Analysis
+# Media Agent — Build Feasibility Analysis (Historical)
+
+> **⚠️ HISTORICAL DOCUMENT** — This was the pre-build gap analysis. All gaps identified here were resolved during implementation. Preserved for decision history.
 
 **Date:** 2026-07-05  
 **Reviewer:** Hermes Agent  

@@ -1,9 +1,19 @@
-# Media Agent — Full Design Specification
+# Media Agent — Design Specification (Historical)
 
-**Version:** 1.0.0  
+> **⚠️ HISTORICAL DOCUMENT** — This is the original design spec from 2026-07-05.  
+> It describes the planned architecture. The actual built system may differ.  
+>  
+> **For current architecture:** See [ARCHITECTURE.md](ARCHITECTURE.md)  
+> **For AI development context:** See [CLAUDE.md](CLAUDE.md)  
+> **For current tool list:** See [docs/tool-reference.md](docs/tool-reference.md)  
+> **For the current README:** See [README.md](README.md)  
+>  
+> This document is preserved for design rationale and decision history.
+
+**Version:** 1.0.0 (original design — see ARCHITECTURE.md for as-built)  
 **Date:** 2026-07-05  
 **Author:** Kevin (Hermes Agent) for Gene  
-**Status:** MVP — Sonarr + Radarr + Emby
+**Status:** MVP — Sonarr + Radarr + Emby (original scope; actual system is Phases 1–4)
 
 ---
 

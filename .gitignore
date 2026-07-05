@@ -20,6 +20,9 @@ venv/
 *.db
 *.sqlite
 
+# AI session state (Hermes agent-lab)
+.remember/
+
 # OS
 .DS_Store
 Thumbs.db
