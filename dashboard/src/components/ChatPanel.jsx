@@ -102,9 +102,9 @@ export default function ChatPanel({ initialQuery }) {
   }, [input])
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-11rem)] min-h-[24rem]">
+    <div className="flex flex-col h-full min-h-0">
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-1 sm:pr-2">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-4 mb-4 pr-1 sm:pr-2">
         {messages.map((message, idx) => (
           <div key={idx} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div
@@ -139,7 +139,7 @@ export default function ChatPanel({ initialQuery }) {
       </div>
 
       {/* Input */}
-      <div className="card p-3 sm:p-4">
+      <div className="card shrink-0 p-3 sm:p-4">
         <form onSubmit={handleSubmit} className="flex gap-2 sm:gap-3">
           <textarea
             ref={textareaRef}

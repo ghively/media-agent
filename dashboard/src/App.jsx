@@ -68,10 +68,17 @@ export default function App() {
         : 'border-transparent text-dark-400 hover:text-dark-300 hover:border-dark-500'
     }`
 
+  const navItems = [
+    { id: 'overview', label: 'Overview', icon: '🏠' },
+    { id: 'chat', label: 'Chat', icon: '💬' },
+  ]
+
   return (
-    <div className="min-h-screen bg-dark-800 text-dark-100 font-sans">
+    // App shell: fills the visual viewport (dvh handles mobile browser chrome).
+    // Only <main> scrolls, so the header and the mobile bottom nav stay put.
+    <div className="flex flex-col h-[100dvh] overflow-hidden bg-dark-800 text-dark-100 font-sans">
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-dark-800/80 backdrop-blur-md border-b border-dark-500/60">
+      <header className="shrink-0 z-50 bg-dark-800/80 backdrop-blur-md border-b border-dark-500/60 pt-[env(safe-area-inset-top)]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between gap-2 h-14 sm:h-16">
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -100,38 +107,56 @@ export default function App() {
         </div>
       </header>
 
-      {/* Tab Navigation */}
-      <div className="border-b border-dark-500/60">
+      {/* Tab Navigation — top on desktop, hidden on phones (bottom bar there) */}
+      <div className="hidden sm:block shrink-0 border-b border-dark-500/60">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <nav className="flex gap-2 sm:gap-8">
+          <nav className="flex gap-8">
             <button onClick={() => setActiveTab('overview')} className={tabClass('overview')}>Overview</button>
             <button onClick={() => setActiveTab('chat')} className={tabClass('chat')}>Chat</button>
           </nav>
         </div>
       </div>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-6">
-        {loading && !data ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="flex gap-1">
-              <span className="typing-dot" />
-              <span className="typing-dot" />
-              <span className="typing-dot" />
+      {/* Main content — the only scroll container (overview scrolls; chat manages its own) */}
+      <main className={`flex-1 min-h-0 overscroll-contain ${activeTab === 'chat' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+        <div className="max-w-7xl mx-auto h-full px-4 sm:px-6 lg:px-8 py-5 sm:py-6">
+          {loading && !data ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="flex gap-1">
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+              </div>
             </div>
-          </div>
-        ) : activeTab === 'overview' ? (
-          <div className="space-y-6">
-            <section><ServiceCards services={data?.services || {}} /></section>
-            <section><ContentProviders providers={data?.local_tools || {}} /></section>
-            <section><QuickActions onAction={handleQuickAction} /></section>
-            <section><ActivityFeed activities={data?.activity || []} /></section>
-            <DiskSpace disk={data?.disk_space} />
-          </div>
-        ) : (
-          <ChatPanel initialQuery={pendingQuery} />
-        )}
+          ) : activeTab === 'overview' ? (
+            <div className="space-y-6">
+              <section><ServiceCards services={data?.services || {}} /></section>
+              <section><ContentProviders providers={data?.local_tools || {}} /></section>
+              <section><QuickActions onAction={handleQuickAction} /></section>
+              <section><ActivityFeed activities={data?.activity || []} /></section>
+              <DiskSpace disk={data?.disk_space} />
+            </div>
+          ) : (
+            <ChatPanel initialQuery={pendingQuery} />
+          )}
+        </div>
       </main>
+
+      {/* Bottom nav — phones only, thumb-reachable, respects the home indicator */}
+      <nav className="sm:hidden shrink-0 grid grid-cols-2 border-t border-dark-500/60 bg-dark-800 pb-[env(safe-area-inset-bottom)]">
+        {navItems.map(({ id, label, icon }) => (
+          <button
+            key={id}
+            onClick={() => setActiveTab(id)}
+            className={`flex flex-col items-center justify-center gap-0.5 py-2.5 touch-manipulation select-none transition-colors ${
+              activeTab === id ? 'text-accent-blue' : 'text-dark-400 active:text-dark-200'
+            }`}
+          >
+            <span className="text-xl leading-none">{icon}</span>
+            <span className="text-[0.7rem] font-medium">{label}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   )
 }

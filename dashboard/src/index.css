@@ -3,10 +3,19 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    /* Stop iOS from auto-enlarging text in landscape */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
   body {
     @apply bg-dark-800 text-dark-100 font-sans antialiased;
+    /* Remove the grey tap flash and prevent sideways scroll / rubber-banding */
+    -webkit-tap-highlight-color: transparent;
+    overflow-x: hidden;
+    overscroll-behavior-y: none;
   }
-  
+
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;

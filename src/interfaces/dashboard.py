@@ -569,13 +569,15 @@ _DASHBOARD_HTML = r"""
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
 <title>Media Agent Dashboard</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background: #0d1117; color: #c9d1d9; min-height: 100vh;
+    -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; overflow-x: hidden;
   }
   .container { max-width: 900px; margin: 0 auto; padding: 16px; }
 
@@ -669,8 +671,8 @@ _DASHBOARD_HTML = r"""
   .chat-msg .label { font-size: 0.65rem; text-transform: uppercase; color: #484f58; margin-bottom: 2px; }
   .chat-input-area { display: flex; border-top: 1px solid #30363d; }
   .chat-input {
-    flex-grow: 1; padding: 10px 12px; border: none; background: #0d1117; color: #c9d1d9;
-    font-size: 0.85rem; font-family: inherit; outline: none;
+    flex-grow: 1; padding: 12px; border: none; background: #0d1117; color: #c9d1d9;
+    font-size: 16px; font-family: inherit; outline: none;
   }
   .chat-send {
     padding: 10px 20px; border: none; background: #238636; color: white;
