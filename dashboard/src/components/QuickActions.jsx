@@ -13,16 +13,16 @@ export default function QuickActions({ onAction }) {
   return (
     <>
       <h2 className="text-lg font-semibold mb-4">Quick Actions</h2>
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-2.5 sm:gap-2">
         {actions.map((action, idx) => (
           <button
             key={idx}
             onClick={() => onAction(action.query)}
-            className="card py-3 px-2 text-center hover:border-accent-blue/60 hover:bg-dark-600/40 transition-all cursor-pointer active:scale-95"
+            className="card flex flex-col items-center justify-center gap-1 min-h-[76px] sm:min-h-[64px] py-4 px-2 text-center hover:border-accent-blue/60 hover:bg-dark-600/40 active:scale-95 active:bg-dark-600/60 transition-all cursor-pointer touch-manipulation select-none"
             title={action.label}
           >
-            <div className="text-2xl mb-1">{action.icon}</div>
-            <div className="text-xs text-dark-300 truncate">{action.label}</div>
+            <div className="text-3xl sm:text-2xl leading-none">{action.icon}</div>
+            <div className="text-xs text-dark-300 truncate w-full">{action.label}</div>
           </button>
         ))}
       </div>

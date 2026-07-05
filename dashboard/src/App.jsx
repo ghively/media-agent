@@ -62,7 +62,7 @@ export default function App() {
   }
 
   const tabClass = (tab) =>
-    `py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
+    `flex-1 sm:flex-none text-center py-4 sm:py-3 px-1 border-b-2 font-semibold sm:font-medium text-sm transition-colors touch-manipulation select-none ${
       activeTab === tab
         ? 'border-accent-blue text-accent-blue'
         : 'border-transparent text-dark-400 hover:text-dark-300 hover:border-dark-500'
@@ -103,7 +103,7 @@ export default function App() {
       {/* Tab Navigation */}
       <div className="border-b border-dark-500/60">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <nav className="flex gap-6 sm:gap-8">
+          <nav className="flex gap-2 sm:gap-8">
             <button onClick={() => setActiveTab('overview')} className={tabClass('overview')}>Overview</button>
             <button onClick={() => setActiveTab('chat')} className={tabClass('chat')}>Chat</button>
           </nav>

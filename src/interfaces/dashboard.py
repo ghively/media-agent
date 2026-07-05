@@ -646,9 +646,9 @@ _DASHBOARD_HTML = r"""
   /* Quick actions */
   .actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .action-btn {
-    padding: 6px 12px; border: 1px solid #30363d; border-radius: 6px;
-    background: #21262d; color: #c9d1d9; font-size: 0.75rem; cursor: pointer;
-    transition: all 0.15s;
+    min-height: 44px; padding: 10px 14px; border: 1px solid #30363d; border-radius: 6px;
+    background: #21262d; color: #c9d1d9; font-size: 0.8rem; cursor: pointer;
+    transition: all 0.15s; touch-action: manipulation; user-select: none;
   }
   .action-btn:hover { border-color: #58a6ff; color: #58a6ff; }
   .action-btn:active { transform: scale(0.97); }
