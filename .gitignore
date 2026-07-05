@@ -1,0 +1,25 @@
+# Secrets - NEVER commit
+.env
+.env.*
+*.keys
+config/settings.yaml
+config/subscriptions.yaml
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# State
+/state/
+*.db
+*.sqlite
+
+# OS
+.DS_Store
+Thumbs.db
