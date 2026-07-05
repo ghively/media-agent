@@ -1,9 +1,9 @@
 # Secrets - NEVER commit
 .env
-.env.*
-*.keys
+.env.keys
 config/settings.yaml
 config/subscriptions.yaml
+# Note: .env.example IS committed as a template
 
 # Python
 __pycache__/
