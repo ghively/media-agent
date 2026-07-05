@@ -299,8 +299,8 @@ class MediaLLM:
 
     def __init__(self, config):
         self.primary = OllamaClient(
-            url=config.ollama_url,      # http://host.docker.internal:11435
-            model=config.ollama_model   # qwen2.5:7b
+            url=config.ollama_url,      # http://agent-lab-ollama-1:11435
+            model=config.ollama_model   # qwen3.5:9b
         )
         self.fallback = OpenAIClient(
             url=config.hosted_url,      # Z.AI / OpenRouter
@@ -324,16 +324,17 @@ class MediaLLM:
 
 ### LLM Model Selection
 
-**Primary (local Ollama):** Qwen 2.5 7B Instruct
+**Primary (local Ollama):** Qwen 3.5 9B (already resident on gh-nvidia)
 
-| Criterion | Qwen 2.5 7B | Why it wins |
+| Criterion | Qwen 3.5 9B | Why it wins |
 |---|---|---|
 | Tool calling | Native, reliable | Supports OpenAI-compatible function calling format |
 | Context window | 128K tokens | Handles full conversation history + tool results |
-| VRAM at Q4_K_M | ~5.5 GB | Fits alongside other models on the 12GB RTX 3060 |
-| Speed on RTX 3060 | ~40 tok/s | Acceptable for conversational latency (<3s response) |
-| Multilingual | 29 languages | Handles international media titles |
+| VRAM | ~6.6 GB | Fits alongside other models on the 12GB RTX 3060 |
+| Speed on RTX 3060 | ~35 tok/s | Acceptable for conversational latency (<3s response) |
+| Multilingual | 29+ languages | Handles international media titles |
 | License | Apache 2.0 | Fully open, no usage restrictions |
+| Already installed | ✅ On gh-nvidia Ollama | No download needed — verified resident |
 
 **Fallback (hosted API):** GLM-4.7 via Z.AI or OpenRouter free pool
 
@@ -603,6 +604,20 @@ Every detected issue is classified:
 
 ## 9. Interfaces
 
+### Security: API Authentication
+
+The OpenAI-compatible API and dashboard require a bearer token:
+
+```yaml
+# config/settings.yaml
+server:
+  api_key: "${MEDIA_AGENT_API_KEY}"  # Generated token, required for all endpoints
+```
+
+All API requests must include `Authorization: Bearer <token>`. The health check
+endpoint `/health` is exempt (for Docker HEALTHCHECK). Open WebUI is configured
+with this API key as the connection password.
+
 ### MVP Interfaces
 
 #### CLI Interface
@@ -727,22 +742,29 @@ FROM python:3.12-slim
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd -r media && useradd -r -g media -d /app media
 
 # Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Application code
-COPY src/ /app/src/
-COPY config/ /app/config/
+COPY --chown=media:media src/ /app/src/
+COPY --chown=media:media config/ /app/config/
 
 WORKDIR /app
+
+# Run as non-root
+USER media
 
 # Expose API port
 EXPOSE 8088
 
-# Health check
+# Health check (health endpoint is exempt from auth)
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
     CMD curl -f http://localhost:8088/health || exit 1
 
@@ -767,9 +789,15 @@ services:
       - ./config:/app/config
       - agent-state:/state
     networks:
+      - agent-mesh           # Join existing agent-lab network for Ollama access
       - default
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+networks:
+  agent-mesh:
+    external: true            # The agent-lab's existing network
+    name: agent-lab_agent-mesh
 
 volumes:
   agent-state:
@@ -800,8 +828,11 @@ server:
   port: 8088
 
 llm:
-  ollama_url: "http://host.docker.internal:11435"
-  ollama_model: "qwen2.5:7b"
+  # CRITICAL: Use the agent-mesh Docker network address, not host.docker.internal
+  # The agent-lab Ollama container has OLLAMA_HOST=0.0.0.0:11435 (internal port 11435)
+  # The media-agent container joins the agent-mesh network to reach it
+  ollama_url: "http://agent-lab-ollama-1:11435"
+  ollama_model: "qwen3.5:9b"
   hosted_url: ""           # Optional fallback (Z.AI, OpenRouter)
   hosted_key: ""           # Optional
   hosted_model: ""         # Optional
@@ -1012,34 +1043,34 @@ As a user, I can:
 
 ## 15. Local LLM Model Selection
 
-### Decision: Qwen 2.5 7B Instruct (Q4_K_M quantization)
+**Decision: Qwen 3.5 9B (already resident on gh-nvidia Ollama)**
 
 | Criterion | Value |
 |---|---|
-| Model | Qwen 2.5 7B Instruct |
-| Quantization | Q4_K_M (~4.4 GB file) |
-| VRAM usage | ~5.5 GB loaded |
+| Model | Qwen 3.5 9B |
+| Size | 6.6 GB |
+| VRAM usage | ~6.6 GB loaded |
 | Context window | 128K tokens |
 | Tool calling | Native OpenAI-compatible function calling |
-| Speed on RTX 3060 | ~40 tok/s |
+| Speed on RTX 3060 | ~35 tok/s |
 | License | Apache 2.0 |
+| Status | Already installed and verified on gh-nvidia |
 
 ### Why this model for this agent
 
-1. **Tool calling is the core capability.** Qwen 2.5 has the most reliable
-   function-calling of any 7B-class model. The agent's entire value proposition
-   depends on correct tool selection and argument formatting.
+1. **Tool calling is the core capability.** Qwen 3.5 has reliable native
+   function-calling support. The agent's entire value proposition depends on
+   correct tool selection and argument formatting.
 
 2. **128K context window.** Conversation history + tool results + system prompt
    can easily reach 10K+ tokens. 128K leaves massive headroom.
 
-3. **Fits the VRAM budget.** The RTX 3060 has 12GB. Q4_K_M uses ~5.5GB loaded,
-   leaving 6.5GB headroom. The Ollama container shares VRAM with potential
+3. **Fits the VRAM budget.** The RTX 3060 has 12GB. Qwen 3.5 9B uses ~6.6GB,
+   leaving 5.4GB headroom. The Ollama container shares VRAM with potential
    concurrent models.
 
-4. **~40 tok/s is conversational.** With a well-structured system prompt and
-   constrained tool surface, responses are typically 100-300 tokens — 3-8
-   seconds to first token, 5-10 seconds total. Acceptable for chat.
+4. **Already installed.** No download needed — the model is verified resident
+   in the Ollama container on gh-nvidia.
 
 5. **Multilingual.** Handles international media titles (anime, foreign films,
    K-pop, etc.) without romanization issues.
@@ -1048,23 +1079,25 @@ As a user, I can:
 
 | Model | Size | VRAM | Tool calling | Why not |
 |---|---|---|---|---|
-| Llama 3.1 8B | 8B | ~6.5GB Q4 | Good | Less reliable function arg formatting than Qwen |
-| Mistral 7B | 7B | ~5.5GB Q4 | OK | 32K context (vs 128K), weaker tool calling |
-| Qwen 2.5 14B | 14B | ~10GB Q4 | Excellent | Too much VRAM — OOM risk on 12GB card |
-| Qwen 2.5 3B | 3B | ~2.5GB Q4 | Decent | Not reliable enough for 23+ tools |
-| Gemma 2 9B | 9B | ~7GB Q4 | Poor | Weak function calling support |
+| Qwen 2.5 7B | 7B | ~5.5GB | Good | Not installed — would need pull. Qwen 3.5 is newer/better |
+| Llama 3.1 8B | 8B | ~6.5GB | Good | Not installed. Less reliable function arg formatting |
+| Mistral 7B | 7B | ~5.5GB | OK | 32K context (vs 128K), weaker tool calling |
+| Gemma 4 12B | 12B | ~7.6GB | Decent | Available but heavier VRAM, weaker tool calling than Qwen |
+| Qwen 3.5 4B | 4B | ~3.4GB | Decent | Available but less reliable for 23+ tools |
 
-### Deployment via Ollama
+### Ollama Integration Notes
 
-```bash
-# Pull the model (one-time, ~4.4GB download)
-ollama pull qwen2.5:7b
+**CRITICAL:** The Ollama container in agent-lab has a port mismatch:
+- Container env: `OLLAMA_HOST=0.0.0.0:11435`
+- Docker port mapping: `container:11434 → host:11435`
 
-# Verify tool calling works
-ollama run qwen2.5:7b "What tools do you have?" --tools /path/to/tools.json
-```
+The media-agent container MUST join the `agent-mesh` Docker network and reach
+Ollama at `http://172.18.0.2:11435` (container IP) or use the internal Docker
+DNS name `http://agent-lab-ollama-1:11435`. Do NOT use `host.docker.internal:11435`
+as the port mapping is broken.
 
-The Ollama container on gh-nvidia serves this model at `http://localhost:11435`.
+The recommended approach is to add the media-agent to the agent-lab's
+`agent-mesh` network in the docker-compose, using the internal network address.
 
 ---
 
