@@ -4,7 +4,7 @@ services:
     container_name: media-agent
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8088:8088"
+      - "0.0.0.0:8088:8088"
     env_file:
       - .env
     volumes:
