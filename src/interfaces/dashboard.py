@@ -689,11 +689,11 @@ _DASHBOARD_HTML = r"""
   <div class="card" style="margin-bottom: 16px;">
     <div class="actions">
       <button class="action-btn" onclick="quickAction('is everything healthy?')">Health Check</button>
-      <button class="action-btn" onclick="quickAction("what's downloading?")">Downloads</button>
+      <button class="action-btn" onclick="quickAction('what is downloading?')">Downloads</button>
       <button class="action-btn" onclick="quickAction('list my tv shows')">TV Shows</button>
       <button class="action-btn" onclick="quickAction('how many movies do I have?')">Movies</button>
       <button class="action-btn" onclick="quickAction('what was recently added to emby?')">Recent</button>
-      <button class="action-btn" onclick="quickAction("what's airing this week?")">Calendar</button>
+      <button class="action-btn" onclick="quickAction('what is airing this week?')">Calendar</button>
       <button class="action-btn" onclick="quickAction('search for missing episodes')">Find Missing</button>
       <button class="action-btn" onclick="quickAction('check disk space')">Disk Space</button>
       <button class="action-btn" onclick="quickAction('check all queues')">All Queues</button>
@@ -925,17 +925,40 @@ async function sendChat() {
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({message: msg}),
     });
-    const data = await resp.json();
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
 
+    // The endpoint streams Server-Sent Events: `data: {content, done, full, error}`.
     document.getElementById("thinking-indicator").remove();
-
     const agentDiv = document.createElement("div");
     agentDiv.className = "chat-msg agent";
-    agentDiv.innerHTML = `<div class="label">Media Agent</div>${esc(data.response)}`;
+    agentDiv.innerHTML = `<div class="label">Media Agent</div><span class="body"></span>`;
+    const body = agentDiv.querySelector(".body");
     msgs.appendChild(agentDiv);
-    msgs.scrollTop = msgs.scrollHeight;
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "", acc = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        let payload;
+        try { payload = JSON.parse(line.slice(6)); } catch (_) { continue; }
+        if (payload.error) { acc = payload.error; }
+        else if (payload.content) { acc += payload.content; }
+        else if (payload.done && !acc) { acc = payload.full || "No response."; }
+        body.textContent = acc;
+        msgs.scrollTop = msgs.scrollHeight;
+      }
+    }
+    if (!acc) body.textContent = "No response.";
   } catch (e) {
-    document.getElementById("thinking-indicator").remove();
+    const ind = document.getElementById("thinking-indicator");
+    if (ind) ind.remove();
     const errDiv = document.createElement("div");
     errDiv.className = "chat-msg system";
     errDiv.textContent = "❌ Failed to get response: " + e.message;

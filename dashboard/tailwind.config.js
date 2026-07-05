@@ -1,4 +1,13 @@
-/** @type {import('tailwindcss').Config} */
+/**
+ * Design tokens for the Media Agent dashboard.
+ *
+ * This file + `src/index.css` (@layer components) are the ONE place to tweak
+ * the look. Change a color here and it propagates everywhere via the semantic
+ * classes (`text-dark-100`, `bg-accent-blue`, `.card`, `.badge`, `.btn`).
+ * See DESIGN.md for how to tweak it — locally or with Claude Design.
+ *
+ * @type {import('tailwindcss').Config}
+ */
 export default {
   content: [
     "./index.html",
