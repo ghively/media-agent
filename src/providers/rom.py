@@ -73,18 +73,20 @@ async def rom_download(identifier: str, platform: str = "") -> str:
 
         os.makedirs(dest, exist_ok=True)
         downloaded = 0
-        total = len(roms[:20])
+        sliced = roms[:20]
+        total = len(roms)
+        capped = len(sliced)
 
-        lines = [f"Downloading {total} file(s) from '{identifier}'...\n"]
-        for f in roms[:20]:
+        lines = [f"Downloading {capped} file(s) from '{identifier}'...\n"]
+        for f in sliced:
             fname = f.get("name", "")
             item.download(fname, destdir=str(dest), silent=True)
             downloaded += 1
             lines.append(f"  ✓ {fname}")
 
         lines.append(f"\n✅ Downloaded {downloaded} files to {dest}")
-        if total > 20:
-            lines.append(f"   ({total - 20} more files skipped — download individually)")
+        if total > capped:
+            lines.append(f"   ({total - capped} more files skipped — download individually)")
         lines.append("\nRun `rom_verify_dat` to verify checksums against No-Intro DATs.")
         return "\n".join(lines)
 

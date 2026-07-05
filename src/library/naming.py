@@ -136,6 +136,10 @@ def fix_naming(path: str, convention: str = "tv") -> str:
                 continue
 
             new_path.parent.mkdir(parents=True, exist_ok=True)
+            # Prevent silent overwrite: if target exists and is different, skip
+            if new_path.exists() and new_path != old_path:
+                errors.append(f"   ⚠️ {new_path} already exists, skipping {old_path.name}")
+                continue
             os.rename(str(old_path), str(new_path))
             undo_log.append({
                 "old": str(old_path),

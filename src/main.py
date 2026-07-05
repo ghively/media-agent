@@ -44,25 +44,49 @@ async def _run_interactive():
 def _run_server(host: str, port: int):
     """Start the API server with all interfaces: OpenAI-compatible API,
     web dashboard, and optional scheduler."""
-    import threading
     import uvicorn
-
-    # Mount dashboard on the existing FastAPI app
     from src.interfaces.dashboard import mount_dashboard
     from src.interfaces.openai_api import app as api_app
+
     mount_dashboard(api_app)
 
-    # Start scheduler in background thread
+    # Start scheduler in the main event loop (not a bare thread).
+    # AsyncIOScheduler must bind to the running event loop.
     try:
         from src.scheduler import MediaScheduler
-        sched = MediaScheduler()
-        import threading
-        t = threading.Thread(target=lambda: sched.start(), daemon=True)
-        t.start()
         import logging
-        logging.info("Scheduler started")
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger(__name__)
+
+        sched = MediaScheduler()
+
+        # Register default jobs
+        async def _health_check():
+            from src.tools.health import check_all_health
+            result = await check_all_health.ainvoke({})
+            logger.info("Scheduled health check: %s", result[:200])
+            return result
+
+        async def _missing_search():
+            from src.tools.sonarr import search_missing_episodes
+            from src.tools.radarr import search_missing_movies
+            await search_missing_episodes.ainvoke({})
+            await search_missing_movies.ainvoke({})
+            return "Missing search complete"
+
+        sched.add_job("health_check", _health_check, "health_check")
+        sched.add_job("missing_search", _missing_search, "missing_episodes")
+
+        # Start scheduler — must be called from within the running event loop,
+        # not a separate thread (AsyncIOScheduler binds to the current loop)
+        @api_app.on_event("startup")
+        async def _start_scheduler():
+            sched.start()
+
+        logger.info("Scheduler configured with 2 default jobs")
     except Exception as e:
         import logging
+        logging.basicConfig(level=logging.WARNING)
         logging.warning(f"Scheduler not started: {e}")
 
     uvicorn.run(
@@ -72,25 +96,6 @@ def _run_server(host: str, port: int):
         reload=False,
         log_level="info",
     )
-
-
-def _run_serve():
-    """Run both the API server and CLI interface."""
-    import threading
-    from src.interfaces.openai_api import app as api_app
-    from src.interfaces.dashboard import mount_dashboard
-    mount_dashboard(api_app)
-
-    # Start scheduler
-    try:
-        from src.scheduler import get_scheduler
-        sched = get_scheduler()
-        threading.Thread(target=lambda: asyncio.run(sched.start()), daemon=True).start()
-    except Exception as e:
-        pass
-
-    import uvicorn
-    uvicorn.run(api_app, host="0.0.0.0", port=8088, log_level="info")
 
 
 if __name__ == "__main__":

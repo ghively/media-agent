@@ -34,9 +34,9 @@ async def bandcamp_download(url: str) -> str:
         if audio_files:
             artist = audio_files[0].parent.parent.name
             album = audio_files[0].parent.name
-            return f"✅ Downloaded {len(audio_files)} track(s) to {download_dir}\nArtist: {artist}\nAlbum: {album}\n\nRun `library_sort_dir` to organize into the media library."
+            return f"✅ Downloaded {len(audio_files)} track(s) to {download_dir}\nArtist: {artist}\nAlbum: {album}\n\nRun an Emby library scan to add these to your music library."
         else:
-            return f"✅ Downloaded files to {download_dir}.\nCheck the directory and run `library_sort_dir` to organize."
+            return f"✅ Downloaded files to {download_dir}.\nCheck the directory and run an Emby library scan."
 
     except asyncio.TimeoutError:
         return "❌ Bandcamp download timed out (120s). The file may be large or the URL may be invalid."

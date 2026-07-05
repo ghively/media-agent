@@ -36,6 +36,7 @@ class ChatCompletionRequest(BaseModel):
 
 
 def _check_auth(authorization: str | None):
+    import hmac
     settings = get_settings()
     api_key = settings.server.get("api_key", "")
     if not api_key:
@@ -43,7 +44,8 @@ def _check_auth(authorization: str | None):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Missing or invalid Authorization header")
     token = authorization.removeprefix("Bearer ")
-    if token != api_key:
+    # Constant-time comparison to prevent timing attacks
+    if not hmac.compare_digest(token, api_key):
         raise HTTPException(401, "Invalid API key")
 
 

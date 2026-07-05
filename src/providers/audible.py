@@ -99,10 +99,12 @@ async def audible_download(asin: str) -> str:
         # Cleanup AAXC
         aaxc_path.unlink(missing_ok=True)
 
-        return f"✅ Downloaded and decrypted: {output_path.name}\n"
-        f"   Size: {output_path.stat().st_size / 1024 / 1024:.1f} MB\n"
-        f"   Path: {output_path}\n"
-        f"   Run `library_sort_dir` to organize into the audiobooks library."
+        return (
+            f"✅ Downloaded and decrypted: {output_path.name}\n"
+            f"   Size: {output_path.stat().st_size / 1024 / 1024:.1f} MB\n"
+            f"   Path: {output_path}\n"
+            f"   Run a library scan in Emby to add this to your library."
+        )
 
     except asyncio.TimeoutError:
         return "❌ Download timed out. Large audiobooks may need more time."
@@ -140,6 +142,7 @@ async def audible_download_new() -> str:
             return "No new audiobooks found since last sync."
 
         results = []
+        success_count = 0
         for book in new_books[:5]:  # Limit to 5 per sync
             asin = book["asin"]
             title = book.get("title", "Unknown")
@@ -153,12 +156,17 @@ async def audible_download_new() -> str:
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             )
             await asyncio.wait_for(proc.communicate(), timeout=120)
-            downloaded.add(asin)
+            # Only mark as downloaded if the subprocess succeeded
+            if proc.returncode == 0:
+                downloaded.add(asin)
+                success_count += 1
+            else:
+                results.append(f"  ❌ Failed to download {title}")
 
         # Save state
         state_file.write_text(json.dumps(list(downloaded)))
 
-        return f"✅ Downloaded {len(new_books[:5])} new audiobook(s):\n" + "\n".join(results)
+        return f"✅ Downloaded {success_count} new audiobook(s):\n" + "\n".join(results)
 
     except Exception as e:
         return f"❌ Audible sync failed: {type(e).__name__}: {e}"

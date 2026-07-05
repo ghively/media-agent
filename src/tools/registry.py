@@ -24,10 +24,10 @@ from src.providers.rom import (
 try:
     from src.tools.sabnzbd import (
         sabnzbd_queue, sabnzbd_history, sabnzbd_status,
-        sabnzbd_pause, sabnzbd_resume,
+        sabnzbd_pause, sabnzbd_resume, sabnzbd_add_nzb,
     )
     _sabnzbd_tools = [sabnzbd_queue, sabnzbd_history, sabnzbd_status,
-                       sabnzbd_pause, sabnzbd_resume]
+                       sabnzbd_pause, sabnzbd_resume, sabnzbd_add_nzb]
 except ImportError:
     _sabnzbd_tools = []
 
@@ -41,10 +41,12 @@ try:
     from src.tools.download_station import (
         download_station_list, download_station_add,
         download_station_pause, download_station_resume,
+        download_station_info, download_station_stats,
     )
     _download_station_tools = [
         download_station_list, download_station_add,
         download_station_pause, download_station_resume,
+        download_station_info, download_station_stats,
     ]
 except ImportError:
     _download_station_tools = []
@@ -53,13 +55,28 @@ try:
     from src.providers.youtube import (
         youtube_download, youtube_add_subscription,
         youtube_list_subscriptions, youtube_check_subscriptions,
+        youtube_get_info, youtube_remove_subscription,
     )
     _youtube_tools = [
         youtube_download, youtube_add_subscription,
         youtube_list_subscriptions, youtube_check_subscriptions,
+        youtube_get_info, youtube_remove_subscription,
     ]
 except ImportError:
     _youtube_tools = []
+
+# Library management tools
+try:
+    from src.tools.library_tools import (
+        library_build_inventory, library_find_duplicates,
+        library_check_naming, library_fix_naming, library_undo_rename,
+    )
+    _library_tools = [
+        library_build_inventory, library_find_duplicates,
+        library_check_naming, library_fix_naming, library_undo_rename,
+    ]
+except ImportError:
+    _library_tools = []
 
 # All tools for the LangGraph agent
 all_tools = (
@@ -81,4 +98,5 @@ all_tools = (
     # ROMs
      rom_search_archive, rom_download, rom_verify_dat, rom_get_collection,
     ] + _sabnzbd_tools + _search_tools + _download_station_tools + _youtube_tools
+    + _library_tools
 )
