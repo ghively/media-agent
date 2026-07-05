@@ -11,17 +11,74 @@ from src.tools.emby import (
     emby_search, emby_recent, emby_libraries, emby_scan, emby_get_item,
 )
 from src.tools.health import check_all_health, check_disk_space, check_queue_status
+from src.providers.bandcamp import bandcamp_download, bandcamp_download_collection
+from src.providers.audible import (
+    audible_list_library, audible_download, audible_download_new,
+    audible_setup_auth, audible_check_auth,
+)
+from src.providers.rom import (
+    rom_search_archive, rom_download, rom_verify_dat, rom_get_collection,
+)
+
+# Optional tools — loaded only if their providers are available
+try:
+    from src.tools.sabnzbd import (
+        sabnzbd_queue, sabnzbd_history, sabnzbd_status,
+        sabnzbd_pause, sabnzbd_resume,
+    )
+    _sabnzbd_tools = [sabnzbd_queue, sabnzbd_history, sabnzbd_status,
+                       sabnzbd_pause, sabnzbd_resume]
+except ImportError:
+    _sabnzbd_tools = []
+
+try:
+    from src.tools.search import search_media, download_media
+    _search_tools = [search_media, download_media]
+except ImportError:
+    _search_tools = []
+
+try:
+    from src.tools.download_station import (
+        download_station_list, download_station_add,
+        download_station_pause, download_station_resume,
+    )
+    _download_station_tools = [
+        download_station_list, download_station_add,
+        download_station_pause, download_station_resume,
+    ]
+except ImportError:
+    _download_station_tools = []
+
+try:
+    from src.providers.youtube import (
+        youtube_download, youtube_add_subscription,
+        youtube_list_subscriptions, youtube_check_subscriptions,
+    )
+    _youtube_tools = [
+        youtube_download, youtube_add_subscription,
+        youtube_list_subscriptions, youtube_check_subscriptions,
+    ]
+except ImportError:
+    _youtube_tools = []
 
 # All tools for the LangGraph agent
-all_tools = [
+all_tools = (
     # TV / Sonarr
-    search_tv, add_tv_show, list_tv_shows, get_tv_queue,
-    get_tv_history, search_missing_episodes, get_tv_calendar, get_tv_health,
+    [search_tv, add_tv_show, list_tv_shows, get_tv_queue,
+     get_tv_history, search_missing_episodes, get_tv_calendar, get_tv_health,
     # Movies / Radarr
-    search_movie, add_movie, list_movies, get_movie_queue,
-    get_movie_history, search_missing_movies, get_movie_health,
+     search_movie, add_movie, list_movies, get_movie_queue,
+     get_movie_history, search_missing_movies, get_movie_health,
     # Library / Emby
-    emby_search, emby_recent, emby_libraries, emby_scan, emby_get_item,
+     emby_search, emby_recent, emby_libraries, emby_scan, emby_get_item,
     # Health
-    check_all_health, check_disk_space, check_queue_status,
-]
+     check_all_health, check_disk_space, check_queue_status,
+    # Bandcamp
+     bandcamp_download, bandcamp_download_collection,
+    # Audible
+     audible_list_library, audible_download, audible_download_new,
+     audible_setup_auth, audible_check_auth,
+    # ROMs
+     rom_search_archive, rom_download, rom_verify_dat, rom_get_collection,
+    ] + _sabnzbd_tools + _search_tools + _download_station_tools + _youtube_tools
+)

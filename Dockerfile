@@ -4,6 +4,7 @@ FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
@@ -14,6 +15,17 @@ WORKDIR /app
 # Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Install additional tools
+RUN pip install --no-cache-dir \
+    yt-dlp \
+    bandcamp-downloader \
+    internetarchive \
+    mutagen \
+    audible-cli \
+    apscheduler \
+    jinja2 \
+    python-telegram-bot>=21.0
 
 # Application code
 COPY --chown=media:media . .
