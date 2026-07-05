@@ -23,6 +23,10 @@ venv/
 # AI session state (Hermes agent-lab)
 .remember/
 
+# Dashboard build artifacts
+dashboard/node_modules/
+src/static/
+
 # OS
 .DS_Store
 Thumbs.db

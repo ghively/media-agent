@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-dark-800 text-dark-100 font-sans antialiased;
+  }
+  
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-dark-700;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-dark-400 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-dark-300;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-dark-700/80 backdrop-blur-sm border border-dark-500/60 rounded-2xl p-5 transition-all duration-200;
+  }
+  .card:hover {
+    @apply border-dark-400/60;
+  }
+  
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide;
+  }
+  .badge-healthy {
+    @apply bg-accent-green/15 text-accent-green border border-accent-green/30;
+  }
+  .badge-warning {
+    @apply bg-accent-yellow/15 text-accent-yellow border border-accent-yellow/30;
+  }
+  .badge-error {
+    @apply bg-accent-red/15 text-accent-red border border-accent-red/30;
+  }
+  .badge-available {
+    @apply bg-accent-blue/15 text-accent-blue border border-accent-blue/30;
+  }
+
+  .btn {
+    @apply px-4 py-2 rounded-xl font-medium text-sm transition-all duration-150 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply bg-accent-blue text-white hover:bg-accent-blue/80;
+  }
+  .btn-ghost {
+    @apply bg-dark-600 text-dark-100 hover:bg-dark-500 border border-dark-400/50;
+  }
+  .btn-danger {
+    @apply bg-accent-red/20 text-accent-red hover:bg-accent-red/30 border border-accent-red/30;
+  }
+}
+
+/* Typing indicator */
+.typing-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #58a6ff;
+  margin: 0 2px;
+  animation: bounce 1.4s infinite ease-in-out both;
+}
+.typing-dot:nth-child(1) { animation-delay: -0.32s; }
+.typing-dot:nth-child(2) { animation-delay: -0.16s; }
+@keyframes bounce {
+  0%, 80%, 100% { transform: scale(0); }
+  40% { transform: scale(1.0); }
+}

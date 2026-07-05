@@ -1,3 +1,13 @@
+# ── Stage 1: Build React dashboard ─────────────────────────────────────
+FROM node:22-slim AS frontend
+WORKDIR /build
+COPY dashboard/package.json dashboard/package-lock.json* ./
+RUN npm install --legacy-peer-deps
+COPY dashboard/ ./
+# Vite outputs to ../src/static relative to WORKDIR, so create that path
+RUN mkdir -p /static && npx vite build --outDir /static --emptyOutDir
+
+# ── Stage 2: Python app ────────────────────────────────────────────────
 FROM python:3.12-slim
 
 # System dependencies
@@ -29,7 +39,9 @@ RUN pip install --no-cache-dir \
 
 # Application code
 COPY --chown=media:media . .
-COPY --chown=media:media config/ ./config/
+
+# Copy React build from frontend stage
+COPY --from=frontend /static /app/src/static
 
 # Run as non-root
 USER media

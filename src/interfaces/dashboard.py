@@ -30,12 +30,29 @@ class ChatRequest(BaseModel):
 
 def mount_dashboard(app: FastAPI) -> None:
     _register_routes(app)
+    # Mount static assets directory for React build
+    import os
+    from fastapi.staticfiles import StaticFiles
+    # React build is at /app/src/static/ (not relative to interfaces/)
+    static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
+    static_dir = os.path.normpath(static_dir)
+    if os.path.isdir(static_dir):
+        assets_dir = os.path.join(static_dir, "assets")
+        if os.path.isdir(assets_dir):
+            app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
 
 def _register_routes(app: FastAPI) -> None:
 
     @app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
     async def dashboard_page():
+        # Try to serve the React build; fall back to inline HTML
+        import os
+        static_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "static"))
+        react_index = os.path.join(static_dir, "index.html")
+        if os.path.exists(react_index):
+            with open(react_index) as f:
+                return HTMLResponse(content=f.read())
         return HTMLResponse(content=_DASHBOARD_HTML)
 
     @app.get("/api/dashboard/data", include_in_schema=False)
@@ -45,17 +62,30 @@ def _register_routes(app: FastAPI) -> None:
 
     @app.post("/api/dashboard/chat", include_in_schema=False)
     async def dashboard_chat(req: ChatRequest):
-        """Chat endpoint for the dashboard. Calls the agent directly."""
-        try:
-            from src.graphs.conversational import create_agent
-            agent = _get_or_create_agent()
-            result = await agent.ainvoke({
-                "messages": [{"role": "user", "content": req.message}]
-            })
-            content = result["messages"][-1].content
-            return JSONResponse({"response": content, "error": False})
-        except Exception as e:
-            return JSONResponse({"response": f"❌ {type(e).__name__}: {e}", "error": True})
+        """Chat endpoint for the dashboard. Streams response as SSE."""
+        import json as _json
+        import uuid as _uuid
+
+        async def _stream():
+            chunk_id = f"chat-{_uuid.uuid4().hex[:8]}"
+            try:
+                agent = _get_or_create_agent()
+                collected = []
+                async for event in agent.astream_events(
+                    {"messages": [{"role": "user", "content": req.message}]},
+                    version="v2",
+                ):
+                    if event["event"] == "on_chat_model_stream":
+                        chunk = event["data"].get("chunk")
+                        if chunk and hasattr(chunk, "content") and chunk.content:
+                            collected.append(chunk.content)
+                            yield f"data: {_json.dumps({'content': chunk.content, 'done': False})}\n\n"
+                full = "".join(collected) or "No response."
+                yield f"data: {_json.dumps({'content': '', 'done': True, 'full': full})}\n\n"
+            except Exception as e:
+                yield f"data: {_json.dumps({'content': '', 'done': True, 'error': f'❌ {type(e).__name__}: {e}'})}\n\n"
+
+        return StreamingResponse(_stream(), media_type="text/event-stream")
 
 
 _agent_instance = None
