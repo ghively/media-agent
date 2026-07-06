@@ -50,7 +50,7 @@
 User Input (CLI/API/Dashboard)
     │
     ▼
-LangGraph create_react_agent(llm, 49 tools)
+LangGraph create_react_agent(llm, 66 tools)
     │
     ├── LLM decides which tools to call
     ├── Tools execute (async, parallel when possible)
@@ -61,7 +61,7 @@ LangGraph create_react_agent(llm, 49 tools)
 Formatted response → User
 ```
 
-**LLM:** Qwen 3.5 9B via Ollama (local, free, ~35 tok/s).  
+**LLM:** Qwen 2.5 7B via Ollama (local, free, ~35 tok/s).  
 **Circuit breaker:** Local-first, falls back to hosted API after 3 failures.  
 **Scheduler:** APScheduler daemon thread (health checks, missing searches, cleanup).
 
@@ -81,17 +81,17 @@ src/
 ├── graphs/
 │   └── conversational.py # create_react_agent + SYSTEM_PROMPT
 ├── tools/               # LangChain @tool functions (API-backed)
-│   ├── registry.py      # ← all_tools aggregation (THE import point)
-│   ├── sonarr.py        # 8 tools: search, add, list, queue, history, calendar, missing, health
-│   ├── radarr.py        # 7 tools: search, add, list, queue, history, missing, health
-│   ├── emby.py          # 5 tools: search, recent, libraries, scan, get_item
-│   ├── health.py        # 3 tools: all_health, disk_space, queue_status
-│   ├── sabnzbd.py       # 5 tools: queue, history, status, pause, resume
-│   ├── download_station.py # 4 tools: list, add, pause, resume
-│   └── search.py        # 2 tools: search_media (unified), download_media
+    │   ├── registry.py      # ← all_tools aggregation (THE import point)
+    │   ├── sonarr.py        # 12 tools: search, add, list, queue, history, calendar, health, missing, quality profiles, root folders, refresh, season search
+    │   ├── radarr.py        # 10 tools: search, add, list, queue, history, health, missing, quality profiles, root folders, refresh
+    │   ├── emby.py          # 5 tools: search, recent, libraries, scan, get_item
+    │   ├── health.py        # 3 tools: all_health, disk_space, queue_status
+    │   ├── sabnzbd.py       # 6 tools: queue, history, status, pause, resume, add NZB
+    │   ├── download_station.py # 6 tools: list, add, pause, resume, info, stats
+    │   └── search.py        # 2 tools: search_media (unified), download_media
 ├── providers/           # Content-specific providers (subprocess-backed)
 │   ├── base.py          # MediaProvider protocol
-│   ├── youtube.py       # 4 tools via yt-dlp subprocess
+│   ├── youtube.py       # 6 tools via yt-dlp subprocess
 │   ├── bandcamp.py      # 2 tools via bandcamp-downloader subprocess
 │   ├── audible.py       # 5 tools via audible-cli subprocess
 │   └── rom.py           # 4 tools via internetarchive subprocess

@@ -1,24 +1,24 @@
 # Media Agent Tool Reference
 
-Complete reference for all 49 registered LangGraph tools in the media-agent project (plus 5 additional unregistered source functions documented for reference).
+Complete reference for all 66 registered LangGraph tools in the media-agent project.
 
 ## Summary
 
 | Category | Tools | Description |
 |----------|-------|-------------|
-| TV/Sonarr | 8 | TV show management via Sonarr API |
-| Movies/Radarr | 7 | Movie management via Radarr API |
+| TV/Sonarr | 12 | TV show management via Sonarr API (search, add, list, queue, history, calendar, health, missing, quality profiles, root folders, refresh, season search) |
+| Movies/Radarr | 10 | Movie management via Radarr API (search, add, list, queue, history, health, missing, quality profiles, root folders, refresh) |
 | Emby Library | 5 | Media library management via Emby API |
 | Health | 3 | System health checks across services |
-| SABnzbd | 5 | Usenet download client management |
-| Download Station | 4 | Synology torrent management |
+| SABnzbd | 6 | Usenet download client management (queue, history, status, pause, resume, add NZB) |
+| Download Station | 6 | Synology torrent management (list, add, pause, resume, info, stats) |
 | Unified Search | 2 | Cross-source media search and download orchestration |
-| YouTube | 4 | YouTube downloads and subscription management |
+| YouTube | 6 | YouTube downloads and subscription management |
 | Bandcamp | 2 | Bandcamp album/track downloads |
 | Audible | 5 | Audible audiobook management |
 | ROMs | 4 | Retro game ROM downloads and verification |
 
-**Total: 49 tools registered** · 5 additional functions exist in source but are not yet in `registry.py`
+**Total: 66 tools registered**
 
 ---
 

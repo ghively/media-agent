@@ -1,18 +1,18 @@
 # Media Agent
 
-A containerized, conversational agent for managing a full personal media ecosystem — TV shows, movies, music, audiobooks, YouTube content, and classic game ROMs. Powered by a local LLM (Qwen 3.5 9B via Ollama) with 49 tools across 7 content providers.
+A containerized, conversational agent for managing a full personal media ecosystem — TV shows, movies, music, audiobooks, YouTube content, and classic game ROMs. Powered by a local LLM (Qwen 2.5 7B via Ollama) with 66 tools across 11 categories.
 
 ## Status: Production (Phases 1–4 Complete)
 
 | Phase | Scope | Status |
 |---|---|---|
 | **1 — Core** | Sonarr (TV), Radarr (movies), Emby library, health checks, CLI, OpenAI-compatible API | ✅ Live |
-| **2 — Downloads** | SABnzbd, Download Station, unified search, library scanner, naming enforcer, scheduler, dashboard | ✅ Built |
-| **3 — Rich Media** | YouTube (yt-dlp), Bandcamp, Audible | ✅ Built |
-| **4 — Classic Games** | ROMs (Internet Archive, DAT verification) | ✅ Built |
+| **2 — Downloads** | SABnzbd, Download Station, unified search, library scanner, naming enforcer, scheduler, dashboard | ✅ Live |
+| **3 — Rich Media** | YouTube (yt-dlp), Bandcamp, Audible | ✅ Live |
+| **4 — Classic Games** | ROMs (Internet Archive, DAT verification) | ✅ Live |
 | **5 — Expansion** | Telegram bot, podcasts, Twitch, comics, ebooks | 📋 Planned |
 
-**49 tools** · **4,230 lines** of Python · **1 Docker container** · **Local LLM** (no external API costs)
+**66 tools** · **5,370 lines** of Python · **1 Docker container** · **Local LLM** (no external API costs)
 
 ---
 
@@ -69,13 +69,13 @@ Mount in Open WebUI: Settings → Connections → add `http://gh-nvidia:8088/v1`
 
 ---
 
-## Capabilities (49 Tools)
+## Capabilities (66 Tools)
 
-### TV Shows — Sonarr (8 tools)
-Search and add shows, list monitored library, check queue/history/calendar/health, trigger missing episode searches.
+### TV Shows — Sonarr (12 tools)
+Search and add shows, list monitored library, check queue/history/calendar/health, trigger missing episode searches, list and browse quality profiles and root folders, refresh show metadata, search for specific seasons.
 
-### Movies — Radarr (7 tools)
-Search and add movies, list monitored library, check queue/history/health, trigger missing movie searches.
+### Movies — Radarr (10 tools)
+Search and add movies, list monitored library, check queue/history/health, trigger missing movie searches, list quality profiles and root folders, refresh movie metadata.
 
 ### Emby Library (5 tools)
 Search across libraries, browse recent additions, list libraries, trigger scans, get item details.
@@ -83,17 +83,17 @@ Search across libraries, browse recent additions, list libraries, trigger scans,
 ### Unified Search & Download (2 tools)
 `search_media` queries Sonarr + Radarr + Download Station simultaneously and returns ranked results. `download_media` auto-routes to the right client.
 
-### SABnzbd (5 tools)
-Queue, history, status, pause, resume.
+### SABnzbd (6 tools)
+Queue, history, status, pause, resume, add NZB with category support (movies/tv/music/books).
 
-### Download Station (4 tools)
-List, add, pause, resume — Synology's torrent manager.
+### Download Station (6 tools)
+List, add, pause, resume, version info, task statistics — Synology's torrent manager.
 
 ### Health (3 tools)
 One-shot health check across all services, NAS disk space, unified queue status.
 
-### YouTube (4 tools)
-Download videos via yt-dlp, manage channel subscriptions, check for new uploads.
+### YouTube (6 tools)
+Download videos via yt-dlp, manage channel subscriptions, check for new uploads, get video info, add/remove subscriptions.
 
 ### Bandcamp (2 tools)
 Download single albums or entire purchased collection.
@@ -203,7 +203,7 @@ media-agent/
 │   └── settings.yaml.example
 ├── docs/                  # Documentation wiki
 │   ├── README.md          # Wiki index
-│   ├── tool-reference.md  # Complete 49-tool reference
+│   ├── tool-reference.md  # Complete 66-tool reference
 │   ├── development-guide.md
 │   ├── deployment-guide.md
 │   └── api-reference.md
@@ -219,16 +219,16 @@ media-agent/
     │   └── conversational.py  # LangGraph ReAct agent + system prompt
     ├── tools/             # LangChain @tool functions
     │   ├── registry.py    # Tool aggregation (all_tools export)
-    │   ├── sonarr.py      # 8 TV tools
-    │   ├── radarr.py      # 7 movie tools
+    │   ├── sonarr.py      # 12 TV tools
+    │   ├── radarr.py      # 10 movie tools
     │   ├── emby.py        # 5 library tools
     │   ├── health.py      # 3 health tools
-    │   ├── sabnzbd.py     # 5 usenet tools
-    │   ├── download_station.py  # 4 torrent tools
-    │   └── search.py      # 2 unified search tools
+    │   ├── sabnzbd.py     # 6 usenet tools
+    │   ├── download_station.py  # 6 torrent tools
+    │   └── search.py      # 2 unified search + download
     ├── providers/         # Content-specific acquisition providers
     │   ├── base.py        # MediaProvider protocol
-    │   ├── youtube.py     # 4 YouTube tools (yt-dlp)
+    │   ├── youtube.py     # 6 YouTube tools (yt-dlp)
     │   ├── bandcamp.py    # 2 Bandcamp tools
     │   ├── audible.py     # 5 Audible tools
     │   └── rom.py         # 4 ROM tools
