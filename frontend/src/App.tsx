@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useCallback } from 'react'
 import type { ChatMessage } from './types'
 import { ChatPanel } from './components/ChatPanel'
 import { DownloadPanel } from './components/DownloadPanel'
@@ -7,14 +7,12 @@ import { ServiceStatusPanel } from './components/ServiceStatusPanel'
 export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
-
-  // Refresh trigger for download/status panels — bumped after each chat reply
   const [refreshKey, setRefreshKey] = useState(0)
 
-  const sendMessage = async (text: string) => {
+  const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || isStreaming) return
 
-    const newMessages = [...messages, { role: 'user' as const, content: text }]
+    const newMessages: ChatMessage[] = [...messages, { role: 'user', content: text }]
     setMessages(newMessages)
     setIsStreaming(true)
 
@@ -28,7 +26,6 @@ export default function App() {
           stream: true,
         }),
       })
-
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
 
       const reader = resp.body?.getReader()
@@ -36,24 +33,20 @@ export default function App() {
 
       const decoder = new TextDecoder()
       let assistantText = ''
-      const assistantMsg: ChatMessage = { role: 'assistant', content: '' }
-      setMessages([...newMessages, assistantMsg])
+      setMessages([...newMessages, { role: 'assistant', content: '' }])
 
       let buffer = ''
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
         buffer = lines.pop() || ''
-
         for (const line of lines) {
           const trimmed = line.trim()
           if (!trimmed || !trimmed.startsWith('data: ')) continue
           const data = trimmed.slice(6)
           if (data === '[DONE]') continue
-
           try {
             const parsed = JSON.parse(data)
             const delta = parsed.choices?.[0]?.delta?.content
@@ -65,51 +58,42 @@ export default function App() {
                 return updated
               })
             }
-          } catch {
-            // partial JSON, skip
-          }
+          } catch { /* partial */ }
         }
       }
       setRefreshKey(k => k + 1)
     } catch (err) {
       setMessages(prev => [
         ...prev,
-        { role: 'assistant', content: `❌ ${err instanceof Error ? err.message : 'Unknown error'}` },
+        { role: 'assistant', content: `❌ ${err instanceof Error ? err.message : 'Connection error'}` },
       ])
     } finally {
       setIsStreaming(false)
     }
-  }
+  }, [messages, isStreaming])
 
   return (
-    <div className="h-screen flex flex-col bg-dark-bg">
-      {/* Header */}
-      <header className="flex-shrink-0 border-b border-dark-border bg-dark-surface px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">🎬</span>
-          <div>
-            <h1 className="text-lg font-semibold text-white">Media Agent</h1>
-            <p className="text-xs text-gray-500">Your media library, automated</p>
-          </div>
+    <div className="h-screen flex flex-col bg-canvas">
+      {/* Header bar */}
+      <header className="flex-shrink-0 border-b border-border-subtle bg-panel h-12 flex items-center justify-between px-4">
+        <div className="flex items-center gap-2.5">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="text-ink">
+            <path d="M4 4h16v16H4z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+            <path d="M4 9h16M9 4v16" stroke="currentColor" strokeWidth="1" opacity="0.3" />
+          </svg>
+          <span className="text-ink font-medium text-sm tracking-tight">Media Agent</span>
         </div>
         <ServiceStatusPanel refreshKey={refreshKey} />
       </header>
 
-      {/* Main content: chat + sidebar */}
+      {/* Two-column layout */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Chat — left, takes more space */}
         <div className="flex-1 flex flex-col min-w-0">
-          <ChatPanel
-            messages={messages}
-            isStreaming={isStreaming}
-            onSend={sendMessage}
-          />
+          <ChatPanel messages={messages} isStreaming={isStreaming} onSend={sendMessage} />
         </div>
-
-        {/* Download sidebar — right */}
-        <div className="w-96 border-l border-dark-border bg-dark-surface overflow-y-auto flex-shrink-0">
+        <aside className="w-80 border-l border-border-subtle bg-panel overflow-y-auto flex-shrink-0">
           <DownloadPanel refreshKey={refreshKey} />
-        </div>
+        </aside>
       </div>
     </div>
   )

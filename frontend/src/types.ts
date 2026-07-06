@@ -22,7 +22,7 @@ export interface SabnzbdSlot {
   timeleft: string;
 }
 
-export interface SabnzbdData {
+export type SabnzbdData = {
   status: string;
   paused: boolean;
   speed: string;
@@ -41,7 +41,7 @@ export interface QueueResponse {
 
 export interface ServiceStatus {
   name: string;
-  status: string;  // healthy | warning | offline | paused
+  status: string;
   shows?: number;
   movies?: number;
   libraries?: number;
