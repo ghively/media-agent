@@ -231,14 +231,17 @@ async def search_media(query: str, source_type: str | None = None) -> str:
             if r.get("overview"):
                 overview = r["overview"][:120]
                 lines.append(f"     {overview}")
-            lines.append(f"     [id: {r['id']}]")
+            id_prefix = "tmdbId" if r["source"] == "radarr" else "tvdbId" if r["source"] == "sonarr" else "id"
+            lines.append(f"     [{id_prefix}: {r['id']}]")
 
         if len(unique_results) > 15:
             lines.append(f"\n  ... and {len(unique_results) - 15} more results")
 
         lines.append("")
-        lines.append("To download a result, use: download_media(result_id)")
-        lines.append("where result_id is the number from the list above.")
+        lines.append("To download: use the appropriate add tool:")
+        lines.append("  • Movies: add_movie(tmdb_id=N, title=\"...\")")
+        lines.append("  • TV:     add_tv_show(tvdb_id=N, title=\"...\")")
+        lines.append("The tmdbId / tvdbId numbers are shown in brackets above.")
 
         return "\n".join(lines)
 

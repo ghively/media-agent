@@ -150,7 +150,7 @@ async def get_tv_history() -> str:
 async def search_missing_episodes() -> str:
     """Trigger a search for missing/wanted episodes."""
     try:
-        await _client()._post("/command", {"name": "MissingEpisodesSearch"})
+        await _client()._post("/command", {"name": "MissingEpisodeSearch"})
         return "✅ Missing episodes search triggered."
     except httpx.ConnectError:
         return "❌ Cannot connect to Sonarr."

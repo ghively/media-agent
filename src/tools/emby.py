@@ -27,6 +27,10 @@ class EmbyClient:
                 f"{self.base_url}{path}", headers=self.headers, json=json_data
             )
             resp.raise_for_status()
+            # Some endpoints return empty body (e.g. Library/Refresh)
+            content = resp.text.strip()
+            if not content:
+                return {}
             return resp.json()
 
 
