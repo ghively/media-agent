@@ -111,11 +111,16 @@ async def get_movie_queue() -> str:
         records = result.get("records", []) if isinstance(result, dict) else result
         if not records:
             return "Radarr download queue is empty."
-        lines = [f"{len(records)} item(s) in queue:\n"]
+        import re as _re
+        lines = [f"{len(records)} item(s) in queue:"]
         for r in records:
             title = r.get("title", "Unknown")
             status = r.get("status", "unknown")
-            lines.append(f"  • {title} — {status}")
+            # Clean up title for readability
+            clean = _re.sub(r'\.', ' ', title)
+            clean = _re.sub(r'\s+(1080|720|2160|480)\b.*$', '', clean)
+            clean = _re.sub(r'\s+(WEB|BluRay|Blu-Ray|HDTV|AMZN|DSNP|ATVP|HMAX|WEBRip|WEB-DL)\b.*$', '', clean, flags=_re.IGNORECASE)
+            lines.append(f"  • {clean} — {status}")
         return "\n".join(lines)
     except httpx.ConnectError:
         return "❌ Cannot connect to Radarr."

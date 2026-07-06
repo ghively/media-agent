@@ -23,13 +23,15 @@ class MediaLLM:
         fallback_url: str = "",
         fallback_key: str = "",
         fallback_model: str = "",
+        temperature: float = 0.7,
     ):
         from langchain_ollama import ChatOllama
 
         self.local_llm = ChatOllama(
             base_url=ollama_url,
             model=ollama_model,
-            temperature=0,
+            temperature=temperature,
+            num_ctx=8192,
         )
         self.fallback_llm = None
         if fallback_url and fallback_key:
@@ -38,7 +40,7 @@ class MediaLLM:
                 base_url=fallback_url,
                 api_key=fallback_key,
                 model=fallback_model,
-                temperature=0,
+                temperature=temperature,
             )
 
         self._state = CircuitState.CLOSED
@@ -89,4 +91,5 @@ def create_llm() -> MediaLLM:
         fallback_url=llm_cfg.get("hosted_url", ""),
         fallback_key=llm_cfg.get("hosted_key", ""),
         fallback_model=llm_cfg.get("hosted_model", ""),
+        temperature=llm_cfg.get("temperature", 0.7),
     )

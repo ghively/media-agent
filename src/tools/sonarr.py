@@ -111,14 +111,19 @@ async def get_tv_queue() -> str:
         records = result.get("records", []) if isinstance(result, dict) else result
         if not records:
             return "Sonarr download queue is empty."
-        lines = [f"{len(records)} item(s) in queue:\n"]
+        import re as _re
+        lines = [f"{len(records)} item(s) in queue:"]
         for r in records:
             title = r.get("title", "Unknown")
             status = r.get("status", "unknown")
             size = float(r.get("size", 0) or 0)
             left = float(r.get("sizeleft", 0) or 0)
             pct = f" — {round((1 - left / size) * 100)}%" if size > 0 else ""
-            lines.append(f"  • {title} — {status}{pct}")
+            # Clean up title for readability
+            clean = _re.sub(r'\.', ' ', title)
+            clean = _re.sub(r'\s+(1080|720|2160|480)\b.*$', '', clean)
+            clean = _re.sub(r'\s+(WEB|BluRay|Blu-Ray|HDTV|AMZN|DSNP|ATVP|HMAX|WEBRip|WEB-DL)\b.*$', '', clean, flags=_re.IGNORECASE)
+            lines.append(f"  • {clean} — {status}{pct}")
         return "\n".join(lines)
     except httpx.ConnectError:
         return "❌ Cannot connect to Sonarr."
