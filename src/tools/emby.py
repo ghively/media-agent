@@ -65,7 +65,14 @@ async def emby_search(query: str) -> str:
 async def emby_recent(limit: int = 20) -> str:
     """Show recently added items in Emby."""
     try:
-        result = await _client()._get("/emby/Items/Latest", params={"Limit": str(limit)})
+        result = await _client()._get("/emby/Items", params={
+            "Limit": str(limit),
+            "SortBy": "DateCreated",
+            "SortOrder": "Descending",
+            "Recursive": "true",
+            "Fields": "DateCreated",
+            "IncludeItemTypes": "Movie,Series",
+        })
         if not result:
             return "No recently added items."
         if isinstance(result, dict):

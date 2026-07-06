@@ -164,6 +164,8 @@ async def sabnzbd_status() -> str:
         # Try to get server/connection info
         try:
             server_data = await _client()._call("server_stats", output="json")
+            if not isinstance(server_data, dict):
+                server_data = {}
         except Exception:
             server_data = {}
 
@@ -184,17 +186,27 @@ async def sabnzbd_status() -> str:
         lines.append(f"  Speed Limit:       {speed_limit}%")
         lines.append(f"  Free Disk:         {disk_free} GB free of {disk_total} GB")
 
-        # Server info from server_stats
-        servers = server_data.get("servers", [])
+        # Server info from server_stats — SABnzbd returns servers as a dict
+        # keyed by server name, not a list.
+        servers = server_data.get("servers", {})
         if servers:
             lines.append("")
             lines.append("Servers:")
-            for server in servers:
-                sname = server.get("servername", "Unknown")
-                sactive = server.get("active", False)
-                sconn = server.get("connections", "?")
-                sactive_icon = "✅" if sactive else "❌"
-                lines.append(f"  {sactive_icon} {sname}  —  Connections: {sconn}")
+            if isinstance(servers, dict):
+                for sname, sinfo in servers.items():
+                    if not isinstance(sinfo, dict):
+                        continue
+                    sactive = sinfo.get("active", False)
+                    sconn = sinfo.get("connections", "?")
+                    sactive_icon = "✅" if sactive else "❌"
+                    lines.append(f"  {sactive_icon} {sname}  —  Connections: {sconn}")
+            elif isinstance(servers, list):
+                for server in servers:
+                    sname = server.get("servername", "Unknown")
+                    sactive = server.get("active", False)
+                    sconn = server.get("connections", "?")
+                    sactive_icon = "✅" if sactive else "❌"
+                    lines.append(f"  {sactive_icon} {sname}  —  Connections: {sconn}")
 
         # Download/upload totals from queue
         mb_total = queue.get("mb", "0")
