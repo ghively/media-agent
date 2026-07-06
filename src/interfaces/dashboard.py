@@ -62,9 +62,17 @@ def _register_routes(app: FastAPI) -> None:
 
     @app.post("/api/dashboard/chat", include_in_schema=False)
     async def dashboard_chat(req: ChatRequest):
-        """Chat endpoint for the dashboard. Streams response as SSE."""
+        """Chat endpoint for the dashboard. Streams response as SSE.
+
+        Uses a fixed thread_id ("dashboard") so conversation history persists
+        across messages via the agent's MemorySaver checkpointer. This lets
+        follow-up messages like "add the first one" reference earlier results.
+        """
         import json as _json
         import uuid as _uuid
+
+        # Config that ties all dashboard messages to one conversation thread.
+        thread_config = {"configurable": {"thread_id": "dashboard"}}
 
         async def _stream():
             chunk_id = f"chat-{_uuid.uuid4().hex[:8]}"
@@ -74,6 +82,7 @@ def _register_routes(app: FastAPI) -> None:
                 async for event in agent.astream_events(
                     {"messages": [{"role": "user", "content": req.message}]},
                     version="v2",
+                    config=thread_config,
                 ):
                     if event["event"] == "on_chat_model_stream":
                         chunk = event["data"].get("chunk")

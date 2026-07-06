@@ -1,55 +1,54 @@
 """Conversational graph using LangGraph's create_react_agent."""
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
 from src.tools.registry import all_tools
 from src.llm.client import create_llm
 
-SYSTEM_PROMPT = """You are Media Agent, a helpful assistant that manages a personal media library.
+# In-process checkpointer — accumulates conversation state across messages
+# for the same thread_id. Each dashboard session uses "dashboard" as the
+# thread_id, so follow-up messages like "add the first one" have context.
+_checkpointer = MemorySaver()
 
-You have these capabilities:
-• TV shows: search_tv, add_tv_show, list_tv_shows, get_tv_queue, get_tv_history,
-  search_missing_episodes, get_tv_calendar, get_tv_health
-• Movies: search_movie, add_movie, list_movies, get_movie_queue, get_movie_history,
-  search_missing_movies, get_movie_health
-• Emby library: emby_search, emby_recent, emby_libraries, emby_scan, emby_get_item
-• Health: check_all_health, check_disk_space, check_queue_status
-• Music: bandcamp_download, bandcamp_download_collection
-• Audiobooks: audible_list_library, audible_download, audible_download_new,
-  audible_setup_auth, audible_check_auth
-• Classic games: rom_search_archive, rom_download, rom_verify_dat, rom_get_collection
-• Library management: library_build_inventory, library_find_duplicates,
-  library_check_naming, library_fix_naming, library_undo_rename
+SYSTEM_PROMPT = """You are Media Agent, a friendly personal media assistant. \
+You help manage a home media library — TV shows, movies, music, audiobooks, \
+and classic games — across services like Sonarr, Radarr, Emby, and SABnzbd.
 
-Available phase 2 tools (when services are deployed):
-• Search all: search_media, download_media
-• Download clients: sabnzbd_queue, sabnzbd_pause, sabnzbd_resume
-• YouTube: youtube_download, youtube_add_subscription
+You are conversational — this is a chat, not a command line. \
+Remember what was discussed earlier in the conversation. \
+If the user says "add the first one" or "that one", refer to results \
+you showed them previously.
 
 Guidelines:
-- When the user asks to add something, search first, confirm the match, then add.
-- Format responses concisely with bullet points.
+- When the user asks to add something, search first, then add — unless you \
+already have results from earlier in the conversation, in which case use them.
+- If a search returns multiple results, present them clearly and ask which one.
 - Use ✅ for success, ❌ for errors, ⚠️ for warnings.
-- If a tool fails, explain what went wrong in plain language.
-- If a search returns multiple results, list them and ask which one the user wants.
-- Keep responses short — you're a tool-using agent, not a chatbot.
-- For downloads that produce local files (Bandcamp, Audible, ROMs, YouTube), tell
-  the user to run an Emby library scan to pick up the new files.
+- If a tool fails, explain what went wrong in plain, friendly language.
+- Be natural and conversational. Greet, acknowledge, confirm. \
+Don't just dump tool output — frame it like a helpful assistant would.
+- Keep responses focused but warm. A sentence of context beats a bare list.
+- For downloads that produce local files (Bandcamp, Audible, ROMs, YouTube), \
+mention running an Emby library scan to pick up new files.
+- IMPORTANT: Always use the provided tools to take actions. Never output \
+JSON or describe what tool you would call — just call it.
 """
 
 
 def create_agent():
-    """Create the conversational agent.
+    """Create the conversational agent with memory.
+
+    Uses an in-process MemorySaver checkpointer so conversation history
+    persists across messages within the same thread_id. The dashboard
+    passes ``config={"configurable": {"thread_id": "dashboard"}}`` on
+    each invocation to maintain continuity.
 
     Primary path is the local Ollama model. When a hosted fallback is
     configured (llm.hosted_url + llm.hosted_key), the model is wrapped with
     LangChain's ``with_fallbacks`` so a failed local invocation automatically
-    retries against the hosted model — the real, per-call failover the old
-    unused circuit breaker only described. Tools are bound to each model up
+    retries against the hosted model. Tools are bound to each model up
     front because a fallback-wrapped runnable can't be re-bound by
     create_react_agent.
-
-    With no fallback configured (the default), behaviour is unchanged: the
-    plain local model is handed to create_react_agent as before.
     """
     llm = create_llm()
     base_llm = llm.local_llm
@@ -60,13 +59,12 @@ def create_agent():
                 [llm.fallback_llm.bind_tools(all_tools)]
             )
         except Exception:
-            # If this langgraph/langchain build doesn't accept a pre-bound
-            # fallback runnable, degrade to the safe local-only path.
             base_llm = llm.local_llm
 
     agent = create_react_agent(
         base_llm,
         tools=all_tools,
         prompt=SYSTEM_PROMPT,
+        checkpointer=_checkpointer,
     )
     return agent
