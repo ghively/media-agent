@@ -1,0 +1,23 @@
+services:
+  media-agent:
+    build: .
+    container_name: media-agent
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:8088:8088"
+    env_file:
+      - .env
+    volumes:
+      - ./config:/app/config
+      - agent-state:/state
+    networks:
+      - agent-mesh
+      - default
+
+networks:
+  agent-mesh:
+    external: true
+    name: agent-lab_agent-mesh
+
+volumes:
+  agent-state:

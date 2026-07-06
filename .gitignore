@@ -1,0 +1,32 @@
+# Secrets - NEVER commit
+.env
+.env.keys
+config/settings.yaml
+config/subscriptions.yaml
+# Note: .env.example IS committed as a template
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# State
+/state/
+*.db
+*.sqlite
+
+# AI session state (Hermes agent-lab)
+.remember/
+
+# Dashboard build artifacts
+dashboard/node_modules/
+src/static/
+
+# OS
+.DS_Store
+Thumbs.db
