@@ -44,7 +44,7 @@ async def _run_interactive():
 def _run_server(host: str, port: int):
     """Start the API server with all interfaces: OpenAI-compatible API,
     web dashboard, and optional scheduler."""
-    import threading
+    import logging
     import uvicorn
 
     # Mount dashboard on the existing FastAPI app
@@ -52,18 +52,19 @@ def _run_server(host: str, port: int):
     from src.interfaces.openai_api import app as api_app
     mount_dashboard(api_app)
 
-    # Start scheduler in background thread
-    try:
-        from src.scheduler import MediaScheduler
-        sched = MediaScheduler()
-        import threading
-        t = threading.Thread(target=lambda: sched.start(), daemon=True)
-        t.start()
-        import logging
-        logging.info("Scheduler started")
-    except Exception as e:
-        import logging
-        logging.warning(f"Scheduler not started: {e}")
+    # Start the scheduler once uvicorn's event loop is running —
+    # AsyncIOScheduler must attach to the running asyncio loop, so starting
+    # it from a plain background thread would never fire jobs.
+    from src.config import get_settings
+    if get_settings().scheduler.get("enabled", False):
+        @api_app.on_event("startup")
+        async def _start_scheduler():
+            try:
+                from src.scheduler import MediaScheduler
+                sched = MediaScheduler()
+                logging.info(sched.start())
+            except Exception as e:
+                logging.warning(f"Scheduler not started: {e}")
 
     uvicorn.run(
         api_app,
@@ -72,25 +73,6 @@ def _run_server(host: str, port: int):
         reload=False,
         log_level="info",
     )
-
-
-def _run_serve():
-    """Run both the API server and CLI interface."""
-    import threading
-    from src.interfaces.openai_api import app as api_app
-    from src.interfaces.dashboard import mount_dashboard
-    mount_dashboard(api_app)
-
-    # Start scheduler
-    try:
-        from src.scheduler import get_scheduler
-        sched = get_scheduler()
-        threading.Thread(target=lambda: asyncio.run(sched.start()), daemon=True).start()
-    except Exception as e:
-        pass
-
-    import uvicorn
-    uvicorn.run(api_app, host="0.0.0.0", port=8088, log_level="info")
 
 
 if __name__ == "__main__":

@@ -8,12 +8,29 @@ server:
 
 llm:
   ollama_url: "http://agent-lab-ollama-1:11435"
+  # Recommended models (smallest that work well with this agent's ~60 tools):
+  #   qwen3.5:9b  — best quality/size balance (default; ~6.6 GB download)
+  #   qwen3.5:4b  — smallest that stays reliable for tool calling (~3.4 GB)
+  #   qwen3:8b    — proven fallback if qwen3.5 misbehaves
+  # Models below ~4B (qwen3.5:2b, llama3.2:3b) drop or malform tool calls
+  # too often with a tool list this large — not recommended.
   ollama_model: "qwen3.5:9b"
+  # IMPORTANT: Ollama's default context (2048-4096) is too small for this
+  # agent's system prompt + tool schemas. When the context overflows, Ollama
+  # silently truncates the prompt and the model starts printing tool-call
+  # JSON into chat. 16384 is a safe floor; lower to 8192 if RAM is tight.
+  num_ctx: 16384
+  # Keep the model loaded between requests (avoids reload latency)
+  keep_alive: "10m"
+  # For thinking models (qwen3/qwen3.5): false asks Ollama to disable the
+  # reasoning trace. Leave unset (null) if your model rejects the flag —
+  # leaked <think> blocks are stripped from responses either way.
+  reasoning: false
+  # Optional hosted fallback, used automatically when Ollama is unreachable
   hosted_url: ""
   hosted_key: ""
   hosted_model: ""
   temperature: 0
-  timeout: 15
 
 services:
   sonarr:

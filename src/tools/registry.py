@@ -19,15 +19,18 @@ from src.providers.audible import (
 from src.providers.rom import (
     rom_search_archive, rom_download, rom_verify_dat, rom_get_collection,
 )
+from src.library.tools import (
+    library_check_naming, library_sort_dir, library_undo_rename, library_inventory,
+)
 
 # Optional tools — loaded only if their providers are available
 try:
     from src.tools.sabnzbd import (
         sabnzbd_queue, sabnzbd_history, sabnzbd_status,
-        sabnzbd_pause, sabnzbd_resume,
+        sabnzbd_pause, sabnzbd_resume, sabnzbd_add_nzb,
     )
     _sabnzbd_tools = [sabnzbd_queue, sabnzbd_history, sabnzbd_status,
-                       sabnzbd_pause, sabnzbd_resume]
+                       sabnzbd_pause, sabnzbd_resume, sabnzbd_add_nzb]
 except ImportError:
     _sabnzbd_tools = []
 
@@ -41,10 +44,12 @@ try:
     from src.tools.download_station import (
         download_station_list, download_station_add,
         download_station_pause, download_station_resume,
+        download_station_info, download_station_stats,
     )
     _download_station_tools = [
         download_station_list, download_station_add,
         download_station_pause, download_station_resume,
+        download_station_info, download_station_stats,
     ]
 except ImportError:
     _download_station_tools = []
@@ -53,10 +58,12 @@ try:
     from src.providers.youtube import (
         youtube_download, youtube_add_subscription,
         youtube_list_subscriptions, youtube_check_subscriptions,
+        youtube_remove_subscription, youtube_get_info,
     )
     _youtube_tools = [
         youtube_download, youtube_add_subscription,
         youtube_list_subscriptions, youtube_check_subscriptions,
+        youtube_remove_subscription, youtube_get_info,
     ]
 except ImportError:
     _youtube_tools = []
@@ -80,5 +87,7 @@ all_tools = (
      audible_setup_auth, audible_check_auth,
     # ROMs
      rom_search_archive, rom_download, rom_verify_dat, rom_get_collection,
+    # Library organization
+     library_check_naming, library_sort_dir, library_undo_rename, library_inventory,
     ] + _sabnzbd_tools + _search_tools + _download_station_tools + _youtube_tools
 )

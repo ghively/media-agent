@@ -65,8 +65,8 @@ async def _gather_health_data() -> dict:
 
     # Sonarr
     try:
-        health_text = await get_tv_health()
-        queue_text = await get_tv_queue()
+        health_text = await get_tv_health.ainvoke({})
+        queue_text = await get_tv_queue.ainvoke({})
         sonarr_ok = "✅" in health_text
         services["sonarr"] = {
             "name": "Sonarr",
@@ -86,8 +86,8 @@ async def _gather_health_data() -> dict:
 
     # Radarr
     try:
-        health_text = await get_movie_health()
-        queue_text = await get_movie_queue()
+        health_text = await get_movie_health.ainvoke({})
+        queue_text = await get_movie_queue.ainvoke({})
         radarr_ok = "✅" in health_text
         services["radarr"] = {
             "name": "Radarr",

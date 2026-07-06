@@ -13,6 +13,7 @@ Required config (config/settings.yaml):
 Note: yt-dlp must be installed on the system ('pip install yt-dlp' or
 'apt install yt-dlp').
 """
+import asyncio
 import json
 import os
 import subprocess
@@ -116,8 +117,10 @@ async def youtube_download(url: str, content_type: str = "video") -> str:
         # Add the URL
         cmd.append(url)
 
-        # Run yt-dlp
-        result = subprocess.run(
+        # Run yt-dlp off the event loop — a blocking run() here would freeze
+        # every other request/tool for the duration of the download
+        result = await asyncio.to_thread(
+            subprocess.run,
             cmd,
             capture_output=True,
             text=True,
@@ -165,7 +168,8 @@ async def youtube_add_subscription(url: str, content_type: str = "concert") -> s
             "--skip-download",
             url,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = await asyncio.to_thread(
+            subprocess.run, cmd, capture_output=True, text=True, timeout=30)
 
         if result.returncode != 0:
             # Fall back to using the URL as-is
@@ -244,7 +248,8 @@ async def youtube_check_subscriptions() -> str:
                     "--skip-download",
                     url,
                 ]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                result = await asyncio.to_thread(
+            subprocess.run, cmd, capture_output=True, text=True, timeout=30)
 
                 if result.returncode != 0:
                     lines.append(f"  ⚠️ {name}: yt-dlp error")
@@ -397,7 +402,8 @@ async def youtube_get_info(url: str) -> str:
             "--skip-download",
             url,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = await asyncio.to_thread(
+            subprocess.run, cmd, capture_output=True, text=True, timeout=30)
 
         if result.returncode != 0:
             return f"❌ Failed to get video info: {result.stderr.strip()[:300]}"

@@ -170,6 +170,12 @@ async def _search_download_station(query: str, limit: int) -> list[dict]:
 
 # ── Unified search tool ─────────────────────────────────────────────────────
 
+# Cache of the most recent search_media results, so download_media can map a
+# position number back to the source-specific ID. Process-local: works for a
+# single-process server / CLI, which is how Media Agent runs.
+_last_results: list[dict] = []
+
+
 @tool
 async def search_media(query: str, source_type: str | None = None) -> str:
     """Search across all media sources (Sonarr, Radarr, Download Station).
@@ -217,6 +223,10 @@ async def search_media(query: str, source_type: str | None = None) -> str:
                 seen.add(key)
                 unique_results.append(r)
 
+        # Remember results so download_media(result_id) can dispatch later
+        _last_results.clear()
+        _last_results.extend(unique_results[:15])
+
         source_names = {
             "sonarr": "TV (Sonarr)",
             "radarr": "Movies (Radarr)",
@@ -250,28 +260,37 @@ async def search_media(query: str, source_type: str | None = None) -> str:
 
 @tool
 async def download_media(result_id: int) -> str:
-    """Download a media result by its position number from search_media().
-
-    This tool triggers the appropriate download action based on the result's
-    source (Sonarr → add TV show, Radarr → add movie, Download Station → the
-    item is already tracking). The search results store the connection between
-    position numbers and source IDs.
+    """Download a result from the most recent search_media() call by its
+    position number. Dispatches to the right service: TV shows are added to
+    Sonarr, movies to Radarr. Only valid right after a search_media call.
 
     Args:
         result_id: The 1-based index from the search_media results list.
     """
-    # Note: This tool requires the output of the most recent search_media call.
-    # In practice, results would be cached in a module variable or passed via
-    # conversation state. For now this acts as a dispatch placeholder.
-    try:
+    if not _last_results:
         return (
-            f"🔄 Download triggered for result #{result_id}.\n\n"
-            f"To complete the action, use the appropriate source-specific tool:\n"
-            f"  • TV show:   add_tv_show(tvdb_id=..., title=...)     [sonarr.py]\n"
-            f"  • Movie:     add_movie(tmdb_id=..., title=...)       [radarr.py]\n"
-            f"  • Torrent:   Run the search again and provide the ID\n\n"
-            f"⚠️  For deep integration, re-run search_media(query) and then "
-            f"call the specific tool for the result you want."
+            "❌ No search results to download from. "
+            "Run search_media(query) first, then call download_media with the result number."
         )
+    if not 1 <= result_id <= len(_last_results):
+        return (
+            f"❌ result_id {result_id} is out of range — the last search "
+            f"returned {len(_last_results)} result(s)."
+        )
+
+    r = _last_results[result_id - 1]
+    try:
+        if r["source"] == "sonarr":
+            from src.tools.sonarr import add_tv_show
+            return await add_tv_show.ainvoke({"tvdb_id": r["id"], "title": r["title"]})
+        if r["source"] == "radarr":
+            from src.tools.radarr import add_movie
+            return await add_movie.ainvoke({"tmdb_id": r["id"], "title": r["title"]})
+        if r["source"] == "download_station":
+            return (
+                f"ℹ️ '{r['title']}' is an existing Download Station task "
+                f"(id: {r['id']}) — it is already being tracked, nothing to add."
+            )
+        return f"❌ Unknown source '{r['source']}' for result #{result_id}."
     except Exception as e:
         return f"❌ Download failed: {type(e).__name__}: {e}"

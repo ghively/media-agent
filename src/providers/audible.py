@@ -99,10 +99,12 @@ async def audible_download(asin: str) -> str:
         # Cleanup AAXC
         aaxc_path.unlink(missing_ok=True)
 
-        return f"✅ Downloaded and decrypted: {output_path.name}\n"
-        f"   Size: {output_path.stat().st_size / 1024 / 1024:.1f} MB\n"
-        f"   Path: {output_path}\n"
-        f"   Run `library_sort_dir` to organize into the audiobooks library."
+        return (
+            f"✅ Downloaded and decrypted: {output_path.name}\n"
+            f"   Size: {output_path.stat().st_size / 1024 / 1024:.1f} MB\n"
+            f"   Path: {output_path}\n"
+            f"   Run `library_sort_dir` to organize into the audiobooks library."
+        )
 
     except asyncio.TimeoutError:
         return "❌ Download timed out. Large audiobooks may need more time."
@@ -116,6 +118,9 @@ async def audible_download(asin: str) -> str:
 async def audible_download_new() -> str:
     """Download audiobooks added to your library since the last sync."""
     try:
+        if not AUDIBLE_AUTH_FILE.exists():
+            return "❌ Audible not authenticated. Run `audible_setup_auth` first."
+
         # Get library
         proc = await asyncio.create_subprocess_exec(
             "audible", "library", "list",

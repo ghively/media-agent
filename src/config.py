@@ -60,6 +60,22 @@ class Settings:
     def sabnzbd(self) -> dict:
         return self._data.get("services", {}).get("sabnzbd", {})
 
+    @property
+    def download_station(self) -> dict:
+        return self._data.get("services", {}).get("download_station", {})
+
+    @property
+    def youtube(self) -> dict:
+        return self._data.get("services", {}).get("youtube", {})
+
+    @property
+    def library(self) -> dict:
+        return self._data.get("library", {})
+
+    @property
+    def scheduler(self) -> dict:
+        return self._data.get("scheduler", {})
+
 
 # Singleton - loaded on first import
 _settings: Settings | None = None
