@@ -80,6 +80,7 @@ def _register_routes(app: FastAPI) -> None:
                         if chunk and hasattr(chunk, "content") and chunk.content:
                             collected.append(chunk.content)
                             yield f"data: {_json.dumps({'content': chunk.content, 'done': False})}\n\n"
+
                 full = "".join(collected) or "No response."
                 yield f"data: {_json.dumps({'content': '', 'done': True, 'full': full})}\n\n"
             except Exception as e:
