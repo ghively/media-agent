@@ -36,8 +36,8 @@
 
 - **49 tools** across 11 source files
 - **4,230 lines** of Python
-- **1 Docker container** on gh-nvidia
-- **3 physical hosts** in the media stack (gh-nvidia, gh-storage, gh-media)
+- **1 Docker container** on your-gpu-host
+- **3 physical hosts** in the media stack (your-gpu-host, your-nas, your-media-host)
 - **Local LLM** (Qwen 3.5 9B via Ollama — zero API cost)
 - **OpenAI-compatible API** (mount in any OpenAI-compatible client)
 - **3 interfaces**: CLI, Web Dashboard, API (Telegram pending)

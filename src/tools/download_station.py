@@ -9,7 +9,7 @@ is surfaced rather than silently degrading to an empty result.
 Required config (config/settings.yaml):
   services:
     download_station:
-      url: "http://192.168.0.133:5000"
+      url: "http://<YOUR_NAS_IP>:5000"
       username: "${DS_USER}"
       password: "${DS_PASS}"
 
@@ -155,7 +155,7 @@ class DownloadStationClient:
 def _client() -> DownloadStationClient:
     s = get_settings().download_station
     return DownloadStationClient(
-        base_url=s.get("url", "http://192.168.0.133:5000"),
+        base_url=s.get("url", "http://<YOUR_NAS_IP>:5000"),
         username=s.get("username"),
         password=s.get("password"),
     )

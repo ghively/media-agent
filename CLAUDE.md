@@ -7,12 +7,12 @@
 ## Project Identity
 
 **Media Agent** — a conversational agent for managing a personal media ecosystem.  
-**Owner:** Gene (ghively)  
-**Built by:** Kevin (Hermes Agent)  
-**Repo:** `github.com/ghively/media-agent` (private)  
+**Owner:** the owner  
+**Built by:** an AI agent  
+**Repo:** `github.com/the-owner/media-agent` (private)  
 **Language:** Python 3.12  
 **Framework:** LangGraph (ReAct agent) + FastAPI  
-**Deployment:** Docker container on gh-nvidia (NVIDIA RTX 3060 workstation)
+**Deployment:** Docker container on your-gpu-host (NVIDIA RTX 3060 workstation)
 
 ---
 
@@ -175,7 +175,7 @@ Providers are for content types that need **external tools** (subprocess calls),
 ```yaml
 services:
   sonarr:
-    url: "http://192.168.0.133:8989"
+    url: "http://<YOUR_NAS_IP>:8989"
     api_key: "${SONARR_API_KEY}"   # ← replaced from environment at load time
 ```
 
@@ -255,14 +255,14 @@ This agent is part of a larger homelab:
 
 | Host | Role | Managed By |
 |---|---|---|
-| **gh-nvidia** | GPU workstation, AI/agent lab, this container | Hermes agent-lab |
-| **gh-storage** | Synology NAS, ~90TB, media services | DSM + homelab-ansible |
-| **gh-media** | Intel NUC, Emby media server | Bare metal |
-| **gh-ai** | VPS, mail/web | homelab-ansible |
-| **gh-git** | Self-hosted GitLab CI/CD | homelab-ansible |
+| **your-gpu-host** | GPU workstation, AI/agent lab, this container | Hermes agent-lab |
+| **your-nas** | Synology NAS, ~90TB, media services | DSM + homelab-ansible |
+| **your-media-host** | Intel NUC, Emby media server | Bare metal |
+| **your-vps-host** | VPS, mail/web | homelab-ansible |
+| **your-git-host** | Self-hosted GitLab CI/CD | homelab-ansible |
 
 **Source of truth for infrastructure:** `homelab-ansible` repo on self-hosted GitLab.  
-**Secrets:** 1Password vault "Gregory".  
+**Secrets:** Password manager (all API keys).  
 **Documentation:** Living docs in GitLab `docs` repo + this repo's `docs/` directory.
 
 ---
@@ -271,8 +271,8 @@ This agent is part of a larger homelab:
 
 | Priority | Feature | Effort |
 |---|---|---|
-| **High** | Telegram bot interface (needs bot token from Gregory) | Small — `python-telegram-bot` already installed |
-| **High** | Prowlarr + qBittorrent deploy on NAS (enables full unified search) | Medium — Docker deploy on gh-storage |
+| **High** | Telegram bot interface (needs bot token from a bot) | Small — `python-telegram-bot` already installed |
+| **High** | Prowlarr + qBittorrent deploy on NAS (enables full unified search) | Medium — Docker deploy on your-nas |
 | **Medium** | Lidarr deploy (music management) | Small — Docker deploy |
 | **Medium** | Automated tests (pytest + pytest-asyncio) | Medium |
 | **Medium** | NFS mount into container (enables library scanner on real files) | Small — DSM config + compose volume |

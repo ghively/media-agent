@@ -29,7 +29,7 @@
 
 ```bash
 # Navigate to the project directory
-cd /home/ghively/agent-lab/media-agent
+cd /home/the-owner/agent-lab/media-agent
 
 # Ensure config exists
 cp config/settings.yaml.example config/settings.yaml
@@ -59,7 +59,7 @@ docker compose up -d --build
 
 ```bash
 # Navigate to the project directory
-cd /home/ghively/agent-lab/media-agent
+cd /home/the-owner/agent-lab/media-agent
 
 # Create and activate a virtual environment
 python3 -m venv .venv
@@ -116,7 +116,7 @@ These conventions are non-negotiable. They ensure consistency across the codebas
 | httpx.AsyncClient | Async HTTP client that plays nice with the event loop. `requests` is blocking. |
 | get_settings() singleton | Centralized config with ${ENV_VAR} substitution. Changes propagate everywhere. |
 | Emoji prefixes | Makes it easy for the LLM to parse results and respond appropriately. |
-| No secrets in code | Secrets live in `.env` → 1Password. Never commit keys. |
+| No secrets in code | Secrets live in `.env` → password manager. Never commit keys. |
 
 ---
 
@@ -566,7 +566,7 @@ When adding a new service (e.g., Lidarr, Prowlarr, Komga), you need to add confi
 ```yaml
 services:
   lidarr:
-    url: "http://192.168.0.133:8686"
+    url: "http://<YOUR_NAS_IP>:8686"
     api_key: "${LIDARR_API_KEY}"
 ```
 
@@ -812,7 +812,7 @@ This lists all registered tools and their descriptions.
 
 ```bash
 # From within the container
-docker compose exec media-agent curl -I http://192.168.0.133:8989/api/v3/health
+docker compose exec media-agent curl -I http://<YOUR_NAS_IP>:8989/api/v3/health
 
 # Check DNS resolution
 docker compose exec media-agent nslookup agent-lab-ollama-1
@@ -1030,7 +1030,7 @@ ollama_url: "http://agent-lab-ollama-1:11435"
 
 ```python
 # ❌ Wrong
-url = "http://192.168.0.133:8989"
+url = "http://<YOUR_NAS_IP>:8989"
 api_key = "abc123"
 
 # ✅ Correct

@@ -9,10 +9,10 @@
 
 | Requirement | Details |
 |---|---|
-| Docker + Docker Compose | On the host machine (gh-nvidia) |
+| Docker + Docker Compose | On the host machine (your-gpu-host) |
 | Ollama container | Running in `agent-lab_agent-mesh` network with `qwen3.5:9b` model |
-| Network access | To gh-storage (192.168.0.133) and gh-media (192.168.0.144) |
-| API keys | In `.env` file, sourced from 1Password vault "Gregory" |
+| Network access | To your-nas (<YOUR_NAS_IP>) and your-media-host (<YOUR_MEDIA_IP>) |
+| API keys | In `.env` file, sourced from password manager
 
 ---
 
@@ -21,7 +21,7 @@
 ### 1. Clone the Repository
 
 ```bash
-git clone git@github.com:ghively/media-agent.git
+git clone git@github.com:the-owner/media-agent.git
 cd media-agent
 ```
 
@@ -32,7 +32,7 @@ cd media-agent
 cp config/settings.yaml.example config/settings.yaml
 cp .env.example .env
 
-# Fill in API keys (from 1Password vault "Gregory")
+# Fill in API keys (from your password manager)
 # Required: SONARR_API_KEY, RADARR_API_KEY, EMBY_API_KEY, SABNZBD_API_KEY
 # Required: MEDIA_AGENT_API_KEY (generate one: openssl rand -hex 16)
 nano .env
@@ -45,16 +45,16 @@ Check `config/settings.yaml` — the service URLs should match your network:
 ```yaml
 services:
   sonarr:
-    url: "http://192.168.0.133:8989"   # gh-storage NAS
+    url: "http://<YOUR_NAS_IP>:8989"   # your-nas NAS
     api_key: "${SONARR_API_KEY}"
   radarr:
-    url: "http://192.168.0.133:8310"   # gh-storage NAS
+    url: "http://<YOUR_NAS_IP>:8310"   # your-nas NAS
     api_key: "${RADARR_API_KEY}"
   emby:
-    url: "http://192.168.0.144:8096"   # gh-media NUC
+    url: "http://<YOUR_MEDIA_IP>:8096"   # your-media-host NUC
     api_key: "${EMBY_API_KEY}"
   sabnzbd:
-    url: "http://192.168.0.133:8080"   # gh-storage NAS
+    url: "http://<YOUR_NAS_IP>:8080"   # your-nas NAS
     api_key: "${SABNZBD_API_KEY}"
 ```
 
@@ -97,7 +97,7 @@ docker exec media-agent python -m src.main -q "is everything healthy?"
 ## Rebuilding After Code Changes
 
 ```bash
-cd /home/ghively/agent-lab/media-agent
+cd /home/the-owner/agent-lab/media-agent
 
 # Rebuild and restart (preserves container name and network)
 docker compose up -d --build
@@ -118,7 +118,7 @@ docker compose build --no-cache && docker compose up -d
 
 1. Open Open WebUI → Settings → Connections
 2. Add a new OpenAI-compatible connection:
-   - **URL:** `http://gh-nvidia:8088/v1`
+   - **URL:** `http://your-gpu-host:8088/v1`
    - **API Key:** The value of `MEDIA_AGENT_API_KEY` from your `.env`
 3. Save. The "media-agent" model appears in the model dropdown.
 4. Start chatting.
@@ -187,7 +187,7 @@ docker exec media-agent curl -s http://agent-lab-ollama-1:11435/api/tags
 
 ```bash
 # Test from the container
-docker exec media-agent curl -s http://192.168.0.133:8989/api/v3/health \
+docker exec media-agent curl -s http://<YOUR_NAS_IP>:8989/api/v3/health \
   -H "X-Api-Key: $SONARR_API_KEY"
 
 # Common causes:
@@ -218,7 +218,7 @@ The container uses two bind mounts:
 - `./config/` — settings.yaml (contains `${VAR}` placeholders, safe to back up)
 - `agent-state` volume — scheduler state, undo logs
 
-The `.env` file is gitignored and contains real secrets. Back up separately (or rely on 1Password as source of truth).
+The `.env` file is gitignored and contains real secrets. Back up separately (or rely on password manager as source of truth).
 
 ---
 
@@ -237,19 +237,19 @@ Container data (config, state) is bind-mounted — safe across rebuilds.
 
 ## Host-Specific Notes
 
-### gh-nvidia (deployment host)
+### your-gpu-host (deployment host)
 
 - Docker group membership required: `sg docker -c "docker compose ..."`
 - The `agent-lab` Docker Compose project must be running (provides Ollama + agent-mesh network)
 - GPU is NOT used by media-agent directly — it uses Ollama over the network
 
-### gh-storage (Synology NAS)
+### your-nas (Synology NAS)
 
 - Sonarr, Radarr, SABnzbd run as native SPK packages (not Docker)
 - Download Station is a built-in DSM package
-- DSM firewall must allow traffic from gh-nvidia (192.168.0.x)
+- DSM firewall must allow traffic from your-gpu-host (your-NAS-IP)
 
-### gh-media (Intel NUC)
+### your-media-host (Intel NUC)
 
 - Emby runs on bare metal
 - Has a 4GB tmpfs RAM disk for transcoding

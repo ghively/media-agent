@@ -65,7 +65,7 @@ async def add_movie(tmdb_id: int, title: str) -> str:
             "tmdbId": tmdb_id,
             "title": title,
             "qualityProfileId": settings.get("quality_profile_id", 4),
-            "rootFolderPath": settings.get("root_folder_path", "/volume2/Media/Movies"),
+            "rootFolderPath": settings.get("root_folder_path", "/your/media/movies"),
             "monitored": True,
             "addOptions": {"searchForMovie": True},
         }

@@ -422,10 +422,10 @@ The Pydantic Settings configuration pattern in the spec is correct and complete.
 ```yaml
 services:
   sonarr:
-    url: "http://192.168.0.133:8989"
+    url: "http://<YOUR_NAS_IP>:8989"
     api_key: "${SONARR_API_KEY}"
   radarr:
-    url: "http://192.168.0.133:8310"
+    url: "http://<YOUR_NAS_IP>:8310"
     api_key: "${RADARR_API_KEY}"
 ```
 

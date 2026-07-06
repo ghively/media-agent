@@ -1,6 +1,6 @@
 # Media Agent — API Reference
 
-**Base URL:** `http://gh-nvidia:8088`  
+**Base URL:** `http://your-gpu-host:8088`  
 **Auth:** Bearer token (`MEDIA_AGENT_API_KEY` from `.env`)  
 **Protocol:** OpenAI-compatible (works with any OpenAI-compatible client)
 
@@ -181,7 +181,7 @@ curl -X POST http://localhost:8088/v1/chat/completions \
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="http://gh-nvidia:8088/v1",
+    base_url="http://your-gpu-host:8088/v1",
     api_key="YOUR_API_KEY",
 )
 
@@ -212,13 +212,13 @@ for chunk in stream:
 ### Open WebUI
 
 1. Settings → Connections → Add connection
-2. **URL:** `http://gh-nvidia:8088/v1`
+2. **URL:** `http://your-gpu-host:8088/v1`
 3. **API Key:** your `MEDIA_AGENT_API_KEY`
 4. The "media-agent" model appears in the dropdown
 
 ### Any OpenAI-Compatible Client
 
-Point any client that supports custom OpenAI base URLs at `http://gh-nvidia:8088/v1` with your API key.
+Point any client that supports custom OpenAI base URLs at `http://your-gpu-host:8088/v1` with your API key.
 
 ---
 

@@ -66,7 +66,7 @@ async def add_tv_show(tvdb_id: int, title: str) -> str:
             "tvdbId": tvdb_id,
             "title": title,
             "qualityProfileId": settings.get("quality_profile_id", 4),
-            "rootFolderPath": settings.get("root_folder_path", "/volume2/Media/TV"),
+            "rootFolderPath": settings.get("root_folder_path", "/your/media/tv"),
             "monitored": True,
             "addOptions": {"searchForMissingEpisodes": True},
             "seriesType": "standard",

@@ -1407,19 +1407,19 @@ All tools read configuration from `config/settings.yaml` using the `get_settings
 ```yaml
 services:
   sonarr:
-    url: "http://192.168.0.133:8989"
+    url: "http://<YOUR_NAS_IP>:8989"
     api_key: "${SONARR_API_KEY}"
   radarr:
-    url: "http://192.168.0.133:7878"
+    url: "http://<YOUR_NAS_IP>:7878"
     api_key: "${RADARR_API_KEY}"
   emby:
-    url: "http://192.168.0.133:8096"
+    url: "http://<YOUR_NAS_IP>:8096"
     api_key: "${EMBY_API_KEY}"
   sabnzbd:
-    url: "http://192.168.0.133:8080"
+    url: "http://<YOUR_NAS_IP>:8080"
     api_key: "${SABNZBD_API_KEY}"
   download_station:
-    url: "http://192.168.0.133:5000"
+    url: "http://<YOUR_NAS_IP>:5000"
     username: "${DS_USER}"
     password: "${DS_PASS}"
 ```

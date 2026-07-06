@@ -12,7 +12,7 @@
 
 **Version:** 1.0.0 (original design — see ARCHITECTURE.md for as-built)  
 **Date:** 2026-07-05  
-**Author:** Kevin (Hermes Agent) for Gene  
+**Author:** an AI agent  
 **Status:** MVP — Sonarr + Radarr + Emby (original scope; actual system is Phases 1–4)
 
 ---
@@ -149,7 +149,7 @@ conversational control via CLI and OpenAI-compatible API.
                │ HTTP/REST
     ┌──────────┼──────────────────┐
     ▼          ▼                  ▼
- gh-storage  gh-storage       gh-media
+ your-nas  your-nas       your-media-host
  (Synology)  (Synology)       (Intel NUC)
  Sonarr:8989 SABnzbd:8080    Emby:8096
  Radarr:8310 DownloadStation
@@ -334,7 +334,7 @@ class MediaLLM:
 
 ### LLM Model Selection
 
-**Primary (local Ollama):** Qwen 3.5 9B (already resident on gh-nvidia)
+**Primary (local Ollama):** Qwen 3.5 9B (already resident on your-gpu-host)
 
 | Criterion | Qwen 3.5 9B | Why it wins |
 |---|---|---|
@@ -344,7 +344,7 @@ class MediaLLM:
 | Speed on RTX 3060 | ~35 tok/s | Acceptable for conversational latency (<3s response) |
 | Multilingual | 29+ languages | Handles international media titles |
 | License | Apache 2.0 | Fully open, no usage restrictions |
-| Already installed | ✅ On gh-nvidia Ollama | No download needed — verified resident |
+| Already installed | ✅ On your-gpu-host Ollama | No download needed — verified resident |
 
 **Fallback (hosted API):** GLM-4.7 via Z.AI or OpenRouter free pool
 
@@ -663,7 +663,7 @@ Long-polling bot that handles:
 - Proactive push notifications (downloads complete, health alerts, escalations)
 - Inline keyboard buttons for decision points ("which duplicate to keep?")
 
-**Note:** Requires a dedicated bot token from Gregory's manager bot. The existing
+**Note:** Requires a dedicated bot token from a Telegram manager bot. The existing
 Hermes bot token (`hermes_damnitkevin_bot`) is NOT shared.
 
 #### Web Dashboard (FastAPI)
@@ -851,16 +851,16 @@ llm:
 
 services:
   sonarr:
-    url: "http://192.168.0.133:8989"
+    url: "http://<YOUR_NAS_IP>:8989"
     api_key: "${SONARR_API_KEY}"
   radarr:
-    url: "http://192.168.0.133:8310"
+    url: "http://<YOUR_NAS_IP>:8310"
     api_key: "${RADARR_API_KEY}"
   emby:
-    url: "http://192.168.0.144:8096"
+    url: "http://<YOUR_MEDIA_IP>:8096"
     api_key: "${EMBY_API_KEY}"
   sabnzbd:                  # [Phase 2]
-    url: "http://192.168.0.133:8080"
+    url: "http://<YOUR_NAS_IP>:8080"
     api_key: "${SABNZBD_API_KEY}"
 
 scheduler:
@@ -884,7 +884,7 @@ library:
 
 ### Credentials
 
-All API keys are stored in 1Password vault "Gregory". At deploy time they are
+All API keys are stored in password manager. At deploy time they are
 written to a `.env` file that is:
 - Never committed to git (`.gitignore`)
 - chmod 600
@@ -896,7 +896,7 @@ or config files.
 ### Network Posture
 
 - API server binds to `127.0.0.1:8088` only — not exposed to LAN by default
-- All outbound connections go to known hosts on LAN (gh-storage, gh-media) or
+- All outbound connections go to known hosts on LAN (your-nas, your-media-host) or
   localhost (Ollama)
 - No inbound ports exposed beyond localhost
 
@@ -1013,22 +1013,22 @@ As a user, I can:
 
 | Service | Host | Address | Status |
 |---|---|---|---|
-| Sonarr v4 | gh-storage (Synology) | 192.168.0.133:8989 | ✅ Native SPK |
-| Radarr | gh-storage | 192.168.0.133:8310 | ✅ Native SPK |
-| SABnzbd | gh-storage | 192.168.0.133:8080 | ✅ |
-| Download Station | gh-storage | 192.168.0.133:5000 | ✅ |
-| Emby | gh-media (Intel NUC) | 192.168.0.144:8096 | ✅ |
-| Ollama | gh-nvidia | localhost:11435 (containerized) | ✅ |
+| Sonarr v4 | your-nas (Synology) | <YOUR_NAS_IP>:8989 | ✅ Native SPK |
+| Radarr | your-nas | <YOUR_NAS_IP>:8310 | ✅ Native SPK |
+| SABnzbd | your-nas | <YOUR_NAS_IP>:8080 | ✅ |
+| Download Station | your-nas | <YOUR_NAS_IP>:5000 | ✅ |
+| Emby | your-media-host (Intel NUC) | <YOUR_MEDIA_IP>:8096 | ✅ |
+| Ollama | your-gpu-host | localhost:11435 (containerized) | ✅ |
 
 ### To Deploy (via homelab-ansible)
 
 | Service | Host | Method | Phase |
 |---|---|---|---|
-| Prowlarr | gh-storage | Docker | Phase 2 |
-| qBittorrent | gh-storage | Docker | Phase 2 |
-| Lidarr | gh-storage | Docker | Phase 3 |
-| RomM | gh-storage | Docker | Phase 4 |
-| NFS export | gh-storage | DSM config | Phase 2 |
+| Prowlarr | your-nas | Docker | Phase 2 |
+| qBittorrent | your-nas | Docker | Phase 2 |
+| Lidarr | your-nas | Docker | Phase 3 |
+| RomM | your-nas | Docker | Phase 4 |
+| NFS export | your-nas | DSM config | Phase 2 |
 
 ### Storage Layout (on Synology NAS)
 
@@ -1053,7 +1053,7 @@ As a user, I can:
 
 ## 15. Local LLM Model Selection
 
-**Decision: Qwen 3.5 9B (already resident on gh-nvidia Ollama)**
+**Decision: Qwen 3.5 9B (already resident on your-gpu-host Ollama)**
 
 | Criterion | Value |
 |---|---|
@@ -1064,7 +1064,7 @@ As a user, I can:
 | Tool calling | Native OpenAI-compatible function calling |
 | Speed on RTX 3060 | ~35 tok/s |
 | License | Apache 2.0 |
-| Status | Already installed and verified on gh-nvidia |
+| Status | Already installed and verified on your-gpu-host |
 
 ### Why this model for this agent
 
@@ -1080,7 +1080,7 @@ As a user, I can:
    concurrent models.
 
 4. **Already installed.** No download needed — the model is verified resident
-   in the Ollama container on gh-nvidia.
+   in the Ollama container on your-gpu-host.
 
 5. **Multilingual.** Handles international media titles (anime, foreign films,
    K-pop, etc.) without romanization issues.
@@ -1113,15 +1113,15 @@ The recommended approach is to add the media-agent to the agent-lab's
 
 ## Appendix A: Credential Reference
 
-All credentials in 1Password vault "Gregory". Variable names only — never values.
+All credentials in password manager. Variable names only — never values.
 
-| Variable | 1Password Item | Used in Phase |
+| Variable | password manager entry | Used in Phase |
 |---|---|---|
 | `SONARR_API_KEY` | "Sonarr API Key (GH-Storage)" | MVP |
 | `RADARR_API_KEY` | "Radarr API Key (GH-Storage)" | MVP |
 | `EMBY_API_KEY` | "Emby API" | MVP |
 | `SABNZBD_API_KEY` | "SABnzbd API Key" | Phase 2 |
-| `TELEGRAM_BOT_TOKEN` | TBD (create via Gregory manager bot) | Phase 2 |
+| `TELEGRAM_BOT_TOKEN` | TBD (create via a bot manager bot) | Phase 2 |
 | `PROWLARR_API_KEY` | TBD (after Prowlarr deploy) | Phase 2 |
 | `QBITTORRENT_USER/PASS` | TBD | Phase 2 |
 | `AUDIBLE_AUTH` | File (audible-cli auth.json) | Phase 3 |

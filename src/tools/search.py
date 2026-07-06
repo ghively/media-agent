@@ -109,7 +109,7 @@ async def _search_download_station(query: str, limit: int) -> list[dict]:
     """Search Download Station for matching torrent/download tasks."""
     try:
         ds = get_settings().download_station
-        base_url = ds.get("url", "http://192.168.0.133:5000")
+        base_url = ds.get("url", "http://<YOUR_NAS_IP>:5000")
         username = ds.get("username")
         password = ds.get("password")
 

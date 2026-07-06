@@ -10,11 +10,11 @@
 
 ## 1. System Overview
 
-Media Agent is a single Docker container running on **gh-nvidia** (NVIDIA RTX 3060 workstation). It provides natural-language control over a media ecosystem spanning three physical hosts:
+Media Agent is a single Docker container running on **your-gpu-host** (NVIDIA RTX 3060 workstation). It provides natural-language control over a media ecosystem spanning three physical hosts:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                     gh-nvidia (this machine)                         │
+│                     your-gpu-host (this machine)                         │
 │                                                                      │
 │  ┌──────────────────────────────────────────────────────────────┐   │
 │  │                   media-agent container                       │   │
@@ -38,13 +38,13 @@ Media Agent is a single Docker container running on **gh-nvidia** (NVIDIA RTX 30
 │  │              Model: qwen3.5:9b (~6.6 GB VRAM)               │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────────────────┘
-                    │ LAN (192.168.0.0/24)
+                    │ LAN (your local subnet)
         ┌───────────┴───────────────────────┐
         ▼                                   ▼
 ┌──────────────────────┐          ┌──────────────────────┐
-│  gh-storage (NAS)    │          │  gh-media (NUC)      │
+│  your-nas (NAS)    │          │  your-media-host (NUC)      │
 │  Synology DS1817+    │          │  Intel NUC           │
-│  192.168.0.133       │          │  192.168.0.144       │
+│  <YOUR_NAS_IP>       │          │  <YOUR_MEDIA_IP>       │
 │                      │          │                      │
 │  • Sonarr   :8989    │          │  • Emby     :8096    │
 │  • Radarr   :8310    │          │    (4GB tmpfs        │
@@ -293,15 +293,15 @@ check_all_health()
 │                                                          │
 └──────────────────────────────────────────────────────────┘
        │
-       │ HTTP (LAN 192.168.0.0/24)
+       │ HTTP (LAN your local subnet)
        │
-       ├──► gh-storage (192.168.0.133)
+       ├──► your-nas (<YOUR_NAS_IP>)
        │    ├── Sonarr   :8989
        │    ├── Radarr   :8310
        │    ├── SABnzbd  :8080
        │    └── Download Station :5000
        │
-       └──► gh-media (192.168.0.144)
+       └──► your-media-host (<YOUR_MEDIA_IP>)
             └── Emby     :8096
 ```
 
@@ -366,7 +366,7 @@ settings.sabnzbd         # → {"url": "http://...", "api_key": "..."}
 
 ### Credentials
 
-All API keys in **1Password vault "Gregory"**, injected via `.env` → Docker `env_file`. The `.env` file is:
+All API keys in **1Password vault **, injected via `.env` → Docker `env_file`. The `.env` file is:
 - Never committed (`.gitignore`)
 - Contains only variable names, never values in `.env.example`
 

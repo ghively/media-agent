@@ -1,63 +1,172 @@
 # Media Agent
 
-A containerized, conversational agent for managing a full personal media ecosystem — TV shows, movies, music, audiobooks, YouTube content, and classic game ROMs. Powered by a local LLM (Qwen 2.5 7B via Ollama) with 66 tools across 11 categories.
+A containerized, conversational AI agent for managing a personal media ecosystem — TV shows, movies, music, audiobooks, YouTube content, and classic game ROMs. Powered by a local LLM (Qwen 2.5 7B via Ollama) with **66 tools** across 11 categories.
 
-## Status: Production (Phases 1–4 Complete)
-
-| Phase | Scope | Status |
-|---|---|---|
-| **1 — Core** | Sonarr (TV), Radarr (movies), Emby library, health checks, CLI, OpenAI-compatible API | ✅ Live |
-| **2 — Downloads** | SABnzbd, Download Station, unified search, library scanner, naming enforcer, scheduler, dashboard | ✅ Live |
-| **3 — Rich Media** | YouTube (yt-dlp), Bandcamp, Audible | ✅ Live |
-| **4 — Classic Games** | ROMs (Internet Archive, DAT verification) | ✅ Live |
-| **5 — Expansion** | Telegram bot, podcasts, Twitch, comics, ebooks | 📋 Planned |
-
-**66 tools** · **5,370 lines** of Python · **1 Docker container** · **Local LLM** (no external API costs)
+Ask it things like *"what's new on my server?"*, *"add The Matrix in 1080p"*, or *"what's downloading?"* — it searches, adds, monitors, and scans your library automatically.
 
 ---
 
-## Quick Start
+## Quick Start (5 minutes)
+
+**Prerequisites:** Docker + Docker Compose on any x86_64 Linux machine with at least 8 GB RAM (GPU optional).
 
 ```bash
-# Clone
-git clone git@github.com:ghively/media-agent.git
+# 1. Clone
+git clone https://github.com/ghively/media-agent.git
 cd media-agent
 
-# Configure
-cp config/settings.yaml.example config/settings.yaml
+# 2. Configure
 cp .env.example .env
-# Fill in API keys from 1Password vault "Gregory"
+cp config/settings.yaml.example config/settings.yaml
+# Edit .env and settings.yaml with your service URLs and API keys
 
-# Build and run
+# 3. Build and run
 docker compose up -d --build
 
-# Verify
+# 4. Verify
 curl http://localhost:8088/health
 # → {"status":"ok"}
 
-# Interact
+# 5. Chat with it
 docker exec -it media-agent python -m src.main -i
+```
+
+That's it. The agent runs as a single Docker container and connects to your existing media services over the network.
+
+---
+
+## What You Need (The Services)
+
+This agent doesn't store media itself — it manages **your existing** services. You need at least one of these running somewhere on your network:
+
+| Service | Required? | What it does | Typical host |
+|---|---|---|---|
+| **Sonarr** | Recommended | TV show management — search, download, organize | NAS, server |
+| **Radarr** | Recommended | Movie management — search, download, organize | NAS, server |
+| **Emby / Jellyfin** | Recommended | Media library — browse, scan, play | NAS, media server |
+| **SABnzbd** | Optional | Usenet download client | NAS, server |
+| **Ollama** | Required | Local LLM inference — runs the agent's brain | Same machine or another |
+
+All services communicate over HTTP. They can be on the same machine, a NAS, or anywhere on your network.
+
+---
+
+## Configuration
+
+### 1. Set up your services
+
+Copy the example files:
+
+```bash
+cp .env.example .env
+cp config/settings.yaml.example config/settings.yaml
+```
+
+### 2. Edit `.env` with your actual keys
+
+```bash
+# Your media service URLs and API keys
+SONARR_URL=http://your-nas:8989
+SONARR_API_KEY=your_sonarr_api_key_here
+
+RADARR_URL=http://your-nas:8310
+RADARR_API_KEY=your_radarr_api_key_here
+
+EMBY_URL=http://your-media-server:8096
+EMBY_API_KEY=your_emby_api_key_here
+
+SABNZBD_URL=http://your-nas:8080
+SABNZBD_API_KEY=your_sabnzbd_api_key_here
+
+# Optional: hosted LLM fallback (used when local Ollama is unreachable)
+# HOSTED_LLM_URL=https://api.openai.com/v1
+# HOSTED_LLM_KEY=sk-...
+# HOSTED_LLM_MODEL=gpt-4o-mini
+
+# A key for the OpenAI-compatible API endpoint
+MEDIA_AGENT_API_KEY=generate-a-random-key-here
+```
+
+### 3. Edit `config/settings.yaml` for quality profiles and paths
+
+```yaml
+services:
+  sonarr:
+    url: "${SONARR_URL}"
+    api_key: "${SONARR_API_KEY}"
+    quality_profile_id: 4          # Replace with your HD-1080p profile ID
+    root_folder_path: "/your/media/tv"  # Your TV show storage path
+
+  radarr:
+    url: "${RADARR_URL}"
+    api_key: "${RADARR_API_KEY}"
+    quality_profile_id: 4          # Replace with your HD-1080p profile ID
+    root_folder_path: "/your/media/movies"  # Your movie storage path
+
+  emby:
+    url: "${EMBY_URL}"
+    api_key: "${EMBY_API_KEY}"
+
+  sabnzbd:
+    url: "${SABNZBD_URL}"
+    api_key: "${SABNZBD_API_KEY}"
+```
+
+**Need to find your quality profile IDs?** Run this after building:
+
+```bash
+docker exec media-agent python -c "
+import asyncio
+from src.tools.sonarr import sonarr_list_quality_profiles
+print(asyncio.run(sonarr_list_quality_profiles.ainvoke({})))
+"
+```
+
+### 4. Build and verify
+
+```bash
+docker compose up -d --build
+sleep 5
+curl http://localhost:8088/health
 ```
 
 ---
 
-## Interfaces
+## How to Use It
 
-| Interface | URL / Command | Auth | Description |
-|---|---|---|---|
-| **Web Dashboard** | `http://gh-nvidia:8088/dashboard` | None | Service health, download queues, recent activity |
-| **CLI (interactive)** | `docker exec -it media-agent python -m src.main -i` | None | Chat REPL — type natural language commands |
-| **CLI (one-shot)** | `docker exec media-agent python -m src.main -q "what's downloading?"` | None | Single query, exits |
-| **CLI (health)** | `docker exec media-agent python -m src.main --health` | None | Quick health check across all services |
-| **OpenAI API** | `POST http://gh-nvidia:8088/v1/chat/completions` | Bearer token | OpenAI-compatible endpoint for Open WebUI / other apps |
-| **API (streaming)** | Same endpoint with `"stream": true` | Bearer token | SSE token-by-token streaming |
-| **Telegram** | *Pending bot token* | Bot token | Mobile chat interface |
-
-### Using the OpenAI-compatible API
+### Chat interface (interactive)
 
 ```bash
-curl -X POST http://localhost:8088/v1/chat/completions \
-  -H "Authorization: Bearer YOUR_API_KEY" \
+docker exec -it media-agent python -m src.main -i
+```
+
+You can type things like:
+- *"What's new on my server?"*
+- *"Search for The Matrix"*
+- *"Add Breaking Bad in 1080p"*
+- *"What's currently downloading?"*
+- *"Show me my library"*
+- *"Are all my services healthy?"*
+
+The agent will search, present options, and ask for confirmation before adding anything. It never silently downloads content.
+
+### One-shot queries
+
+```bash
+docker exec media-agent python -m src.main -q "how much disk space is free?"
+docker exec media-agent python -m src.main -q "what's downloading?"
+docker exec media-agent python -m src.main -q "list my movies"
+```
+
+### Web dashboard
+
+Open `http://your-machine:8088/dashboard` in a browser for a visual overview of service health, download queues, and recent activity.
+
+### OpenAI-compatible API
+
+```bash
+curl -X POST http://your-machine:8088/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_MEDIA_AGENT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "media-agent",
@@ -65,114 +174,98 @@ curl -X POST http://localhost:8088/v1/chat/completions \
   }'
 ```
 
-Mount in Open WebUI: Settings → Connections → add `http://gh-nvidia:8088/v1` with your API key.
-
----
-
-## Capabilities (66 Tools)
-
-### TV Shows — Sonarr (12 tools)
-Search and add shows, list monitored library, check queue/history/calendar/health, trigger missing episode searches, list and browse quality profiles and root folders, refresh show metadata, search for specific seasons.
-
-### Movies — Radarr (10 tools)
-Search and add movies, list monitored library, check queue/history/health, trigger missing movie searches, list quality profiles and root folders, refresh movie metadata.
-
-### Emby Library (5 tools)
-Search across libraries, browse recent additions, list libraries, trigger scans, get item details.
-
-### Unified Search & Download (2 tools)
-`search_media` queries Sonarr + Radarr + Download Station simultaneously and returns ranked results. `download_media` auto-routes to the right client.
-
-### SABnzbd (6 tools)
-Queue, history, status, pause, resume, add NZB with category support (movies/tv/music/books).
-
-### Download Station (6 tools)
-List, add, pause, resume, version info, task statistics — Synology's torrent manager.
-
-### Health (3 tools)
-One-shot health check across all services, NAS disk space, unified queue status.
-
-### YouTube (6 tools)
-Download videos via yt-dlp, manage channel subscriptions, check for new uploads, get video info, add/remove subscriptions.
-
-### Bandcamp (2 tools)
-Download single albums or entire purchased collection.
-
-### Audible (5 tools)
-List library, download books, sync new titles, set up/check OAuth authentication.
-
-### ROMs (4 tools)
-Search Internet Archive No-Intro collections, download ROMs, verify against DAT files, list collection by platform.
+This works with any OpenAI-compatible client (Open WebUI, SillyTavern, etc.).
 
 ---
 
 ## Architecture
 
-The agent uses a **three-layer architecture**: LLM handles intent parsing and exception reasoning; deterministic code handles API calls; a scheduler handles proactive monitoring.
-
 ```
-User Input → [LLM Intent Parse] → [Tool Selection] → [API Call] → [LLM Response Format] → User
+User Input (CLI / API / Dashboard)
+    │
+    ▼
+LangGraph ReAct Agent (LLM + 66 tools)
+    │
+    ├── Sonarr tools (12)   → TV show management
+    ├── Radarr tools (10)   → Movie management
+    ├── Emby tools (5)      → Library search, scan
+    ├── SABnzbd tools (6)   → Download queue, history
+    ├── Download Station (6)→ Torrent management
+    ├── Health tools (3)    → Service health checks
+    ├── Search tools (2)    → Unified cross-source search
+    ├── YouTube tools (6)   → Video download + subscriptions
+    ├── Bandcamp tools (2)  → Music downloads
+    ├── Audible tools (5)   → Audiobook management
+    └── ROM tools (4)       → Retro game collections
+    │
+    ▼
+Your media services (Sonarr, Radarr, Emby, SABnzbd...)
 ```
 
-The conversational engine is **LangGraph's `create_react_agent`** — the LLM selects tools, calls them, sees results, and loops until it can answer. All 49 tools are registered in a single registry and available to the agent simultaneously.
+The agent uses **LangGraph's `create_react_agent`** — the LLM (Qwen 2.5 7B via local Ollama) decides which tools to call, executes them, sees results, and loops until it can answer. All 66 tools are registered in a single registry and available simultaneously.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the full system diagram, data flow, and component reference.
-
----
-
-## Infrastructure
-
-| Service | Host | Port | Role |
-|---|---|---|---|
-| **Sonarr v4** | gh-storage (Synology NAS) | 8989 | TV show manager (native SPK) |
-| **Radarr** | gh-storage | 8310 | Movie manager (native SPK) |
-| **SABnzbd** | gh-storage | 8080 | Usenet downloader |
-| **Download Station** | gh-storage | 5000 | Torrent manager (Synology DSM) |
-| **Emby** | gh-media (Intel NUC) | 8096 | Media server / library UI |
-| **Ollama** | gh-nvidia (this machine) | 11435 | Local LLM (Qwen 3.5 9B) |
-
-The media-agent container joins the `agent-mesh` Docker network to reach Ollama, and connects to gh-storage/gh-media over the LAN.
+**Key design points:**
+- **Local-first:** Uses local Ollama for all inference. Zero API costs. Optional cloud LLM fallback.
+- **Always confirms:** Before adding or downloading anything, the agent searches first, presents results, and asks for explicit confirmation.
+- **Automatic scanning:** After confirmed additions, it triggers an Emby library scan so content appears without manual steps.
+- **Self-healing:** Tools have try/except wrappers — failures return friendly error messages instead of crashes.
 
 ---
 
-## Configuration
+## Deployment Guide (for other Hermes agents or devs)
 
-All secrets live in **1Password vault "Gregory"** and are injected via `.env` (gitignored). The config loader (`src/config.py`) does `${VAR}` substitution from `settings.yaml` → environment variables.
+Detailed instructions for deploying in a new environment are in:
 
-| Variable | Source | Required |
-|---|---|---|
-| `SONARR_API_KEY` | 1Password "Sonarr API Key (GH-Storage)" | Yes |
-| `RADARR_API_KEY` | 1Password "Radarr API Key (GH-Storage)" | Yes |
-| `EMBY_API_KEY` | 1Password "Emby API" | Yes |
-| `SABNZBD_API_KEY` | 1Password "SABnzbd API Key" | Yes |
-| `MEDIA_AGENT_API_KEY` | Self-generated | Yes |
-| `HOSTED_LLM_*` | Z.AI / OpenRouter | Optional fallback |
-
-See [`.env.example`](.env.example) and [`config/settings.yaml.example`](config/settings.yaml.example) for all options.
-
----
-
-## Development
-
-This project is designed for **AI-assisted continuous development**. The following files provide full context for any AI agent (Claude, GPT, Copilot, etc.) picking up this codebase:
-
-| File | Purpose |
+| Document | What it covers |
 |---|---|
-| **[CLAUDE.md](CLAUDE.md)** | AI-agent context file — read this first when working on this codebase |
-| **[ARCHITECTURE.md](ARCHITECTURE.md)** | System architecture, data flow, component reference |
-| **[docs/](docs/)** | Full documentation wiki (tool reference, dev guide, API reference) |
-| **[SPEC.md](SPEC.md)** | Historical design specification (original vision document) |
+| [CLAUDE.md](CLAUDE.md) | AI context file — read this first when working on the codebase |
+| [docs/deployment-guide.md](docs/deployment-guide.md) | Full deployment walkthrough for first-time setup |
+| [docs/development-guide.md](docs/development-guide.md) | How to add new tools, providers, or integrations |
+| [docs/tool-reference.md](docs/tool-reference.md) | Complete reference for all 66 tools |
+| [docs/api-reference.md](docs/api-reference.md) | OpenAI-compatible API documentation |
 
-### Key development patterns
+### For Hermes / Claude / Cursor agents
 
-- **All tools are async** `@tool` functions from `langchain_core.tools`
-- **All tools return formatted strings** (not dicts) — the LLM sees them as text
-- **All tools use `httpx.AsyncClient`** for network calls
-- **All tools have try/except** returning `❌` error strings, never raising
-- **Config via `get_settings()`** singleton from `src/config.py`
-- **Tool registration in `src/tools/registry.py`** — add new tools here
+If you're an AI agent being asked to deploy this, start with `CLAUDE.md` — it contains the 10 commandments, source map, and common gotchas that will save you from making mistakes the original builder already made.
 
-See [docs/development-guide.md](docs/development-guide.md) for the complete development workflow.
+### Quick deployment checklist
+
+1. ✅ Docker + Docker Compose installed
+2. ✅ Ollama running with `qwen2.5:7b` pulled (`ollama pull qwen2.5:7b`)
+3. ✅ Media services running (Sonarr, Radarr, Emby at minimum)
+4. ✅ `.env` populated with real URLs and API keys
+5. ✅ `settings.yaml` configured with your quality profiles and storage paths
+6. ✅ Port 8088 available on the host
+7. ✅ Docker network can reach Ollama (default: `agent-mesh`)
+
+---
+
+## Capabilities (66 Tools)
+
+| Category | Tools | What you can ask |
+|---|---|---|
+| **TV — Sonarr** | 12 | Search shows, add to library, check queue/history, view calendar, check health, trigger missing episode search, browse quality profiles and root folders, refresh metadata, search seasons |
+| **Movies — Radarr** | 10 | Search movies, add to library, check queue/history, check health, browse quality profiles and root folders, refresh metadata |
+| **Library — Emby** | 5 | Search across libraries, browse recent additions, list libraries, trigger scan, get item details |
+| **Downloads — SABnzbd** | 6 | View queue, history, server status, pause/resume, add NZB |
+| **Torrents — Download Station** | 6 | List tasks, add downloads, pause/resume, version info, task statistics |
+| **Search** | 2 | Unified cross-source search (movies + TV + torrents), auto-route download |
+| **Health** | 3 | Check all services, disk space, queue status |
+| **YouTube** | 6 | Download videos, subscribe to channels, check for new uploads, get video info |
+| **Bandcamp** | 2 | Download individual albums or entire purchased collection |
+| **Audible** | 5 | List library, download books, sync new titles, set up/check auth |
+| **ROMs** | 4 | Search Internet Archive collections, download ROM sets, verify with DAT files, browse by platform |
+
+---
+
+## I Want to Add a New Tool
+
+See the [development guide](docs/development-guide.md), or just tell your AI agent to add one — the `CLAUDE.md` file has everything it needs to get started.
+
+The pattern is:
+1. Write an `async def` function with `@tool` decorator
+2. Register it in `src/tools/registry.py`
+3. Build and verify
 
 ---
 
@@ -180,73 +273,17 @@ See [docs/development-guide.md](docs/development-guide.md) for the complete deve
 
 - **Python 3.12** + **LangGraph** (ReAct agent) + **LangChain** (tool protocol)
 - **FastAPI** (API server + dashboard)
-- **Ollama** (local LLM inference — Qwen 3.5 9B)
+- **Ollama** (local LLM inference — Qwen 2.5 7B)
 - **httpx** (async HTTP client for all service APIs)
-- **APScheduler** (proactive monitoring cron)
-- **Docker** (single container, joins agent-mesh network)
-
----
-
-## Project Structure
-
-```
-media-agent/
-├── CLAUDE.md              # AI context file (READ THIS FIRST)
-├── ARCHITECTURE.md        # System architecture + diagrams
-├── README.md              # This file
-├── SPEC.md                # Historical design spec
-├── docker-compose.yml     # Container orchestration
-├── Dockerfile             # Build definition
-├── requirements.txt       # Python dependencies
-├── .env.example           # Environment variable template
-├── config/
-│   └── settings.yaml.example
-├── docs/                  # Documentation wiki
-│   ├── README.md          # Wiki index
-│   ├── tool-reference.md  # Complete 66-tool reference
-│   ├── development-guide.md
-│   ├── deployment-guide.md
-│   └── api-reference.md
-└── src/
-    ├── main.py            # Entry point (--serve, --interactive, --query, --health)
-    ├── config.py          # Settings loader (YAML + env var substitution)
-    ├── scheduler.py       # APScheduler proactive monitoring
-    ├── engine/
-    │   └── types.py       # Pydantic data models
-    ├── llm/
-    │   └── client.py      # Circuit-breaker LLM router (local → fallback)
-    ├── graphs/
-    │   └── conversational.py  # LangGraph ReAct agent + system prompt
-    ├── tools/             # LangChain @tool functions
-    │   ├── registry.py    # Tool aggregation (all_tools export)
-    │   ├── sonarr.py      # 12 TV tools
-    │   ├── radarr.py      # 10 movie tools
-    │   ├── emby.py        # 5 library tools
-    │   ├── health.py      # 3 health tools
-    │   ├── sabnzbd.py     # 6 usenet tools
-    │   ├── download_station.py  # 6 torrent tools
-    │   └── search.py      # 2 unified search + download
-    ├── providers/         # Content-specific acquisition providers
-    │   ├── base.py        # MediaProvider protocol
-    │   ├── youtube.py     # 6 YouTube tools (yt-dlp)
-    │   ├── bandcamp.py    # 2 Bandcamp tools
-    │   ├── audible.py     # 5 Audible tools
-    │   └── rom.py         # 4 ROM tools
-    ├── library/           # Library management engine
-    │   ├── scanner.py     # Inventory, cross-reference, orphans, duplicates
-    │   └── naming.py      # Naming convention enforcement + undo
-    └── interfaces/        # User-facing interfaces
-        ├── cli.py         # Interactive REPL + one-shot
-        ├── openai_api.py  # OpenAI-compatible API (FastAPI)
-        └── dashboard.py   # Web dashboard (inline HTML)
-```
+- **APScheduler** (proactive monitoring — health checks, missing searches, cleanup)
+- **Docker** (single container deployment)
 
 ---
 
 ## License
 
-Personal use. Not for distribution.
+Personal use. Built for sharing — pull requests welcome.
 
 ---
 
-*Built by Kevin (Hermes Agent) for Gene. Living documentation — every runtime change updates these docs.*
+*Living documentation — every runtime change updates these docs.*
