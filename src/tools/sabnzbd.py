@@ -77,21 +77,65 @@ async def sabnzbd_queue() -> str:
 
         if slots:
             lines.append("")
-            for i, slot in enumerate(slots[:20], 1):
+            # Group items by show/series for a readable summary
+            import re as _re
+            groups = {}  # show_name → list of slots
+            ungrouped = []
+
+            for slot in slots:
+                filename = slot.get("filename", "Unknown")
+                # Try to extract show name: "Show.Name.S01E02..." or "Show Name S01E02..."
+                # Also handle season packs: "Show.Name.S01..."
+                m = _re.match(
+                    r"^(.+?)\.S\d{2}(?:E\d{2})?",
+                    filename,
+                    _re.IGNORECASE,
+                )
+                if m:
+                    show = m.group(1).replace(".", " ").strip()
+                    groups.setdefault(show, []).append(slot)
+                else:
+                    # Also try movie pattern: "Movie.Name.YYYY..."
+                    m2 = _re.match(r"^(.+?)\.\d{4}\.", filename)
+                    if m2:
+                        show = m2.group(1).replace(".", " ").strip()
+                        groups.setdefault(show, []).append(slot)
+                    else:
+                        ungrouped.append(slot)
+
+            # Sort groups by episode count descending
+            sorted_groups = sorted(groups.items(), key=lambda x: len(x[1]), reverse=True)
+
+            lines.append("By show/series:")
+            for show_name, group_slots in sorted_groups:
+                total_size_mb = sum(
+                    float(s.get("mb", 0) or 0) for s in group_slots
+                )
+                if total_size_mb >= 1024:
+                    size_str = f"{total_size_mb / 1024:.1f} GB"
+                else:
+                    size_str = f"{total_size_mb:.0f} MB"
+                statuses = set(s.get("status", "?") for s in group_slots)
+                lines.append(
+                    f"  • {show_name} — {len(group_slots)} item(s), {size_str}"
+                    f"  [{', '.join(sorted(statuses))}]"
+                )
+
+            if ungrouped:
+                lines.append(f"  • (ungrouped) — {len(ungrouped)} item(s)")
+
+            lines.append("")
+            lines.append("Currently downloading (first 15 active):")
+            active = [
+                s for s in slots
+                if s.get("status", "").lower() == "downloading"
+            ]
+            shown = active[:15] if active else slots[:15]
+            for i, slot in enumerate(shown, 1):
                 filename = slot.get("filename", "Unknown")
                 size = slot.get("size", "?")
-                mb_left = slot.get("mbleft", "0")
                 status_str = slot.get("status", "?")
-
-                # Format index number
-                index_label = slot.get("index", "")
-                lines.append(
-                    f"  {i}. {filename}"
-                )
-                lines.append(f"     Size: {size}  |  Left: {mb_left} MB  |  Status: {status_str}")
-
-            if len(slots) > 20:
-                lines.append(f"  ... and {len(slots) - 20} more items")
+                lines.append(f"  {i}. {filename} — {size} — {status_str}")
 
         return "\n".join(lines)
 
