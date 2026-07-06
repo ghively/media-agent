@@ -2,10 +2,14 @@
 from src.tools.sonarr import (
     search_tv, add_tv_show, list_tv_shows, get_tv_queue,
     get_tv_history, search_missing_episodes, get_tv_calendar, get_tv_health,
+    sonarr_list_quality_profiles, sonarr_list_root_folders,
+    refresh_tv_show, search_season,
 )
 from src.tools.radarr import (
     search_movie, add_movie, list_movies, get_movie_queue,
     get_movie_history, search_missing_movies, get_movie_health,
+    radarr_list_quality_profiles, radarr_list_root_folders,
+    refresh_movie,
 )
 from src.tools.emby import (
     emby_search, emby_recent, emby_libraries, emby_scan, emby_get_item,
@@ -83,9 +87,13 @@ all_tools = (
     # TV / Sonarr
     [search_tv, add_tv_show, list_tv_shows, get_tv_queue,
      get_tv_history, search_missing_episodes, get_tv_calendar, get_tv_health,
+     sonarr_list_quality_profiles, sonarr_list_root_folders,
+     refresh_tv_show, search_season,
     # Movies / Radarr
      search_movie, add_movie, list_movies, get_movie_queue,
      get_movie_history, search_missing_movies, get_movie_health,
+     radarr_list_quality_profiles, radarr_list_root_folders,
+     refresh_movie,
     # Library / Emby
      emby_search, emby_recent, emby_libraries, emby_scan, emby_get_item,
     # Health

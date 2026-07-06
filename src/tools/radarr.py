@@ -60,11 +60,12 @@ async def search_movie(query: str) -> str:
 async def add_movie(tmdb_id: int, title: str) -> str:
     """Add a movie to the monitored library by its TMDb ID."""
     try:
+        settings = get_settings().radarr
         body = {
             "tmdbId": tmdb_id,
             "title": title,
-            "qualityProfileId": 1,
-            "rootFolderPath": "/movies/",
+            "qualityProfileId": settings.get("quality_profile_id", 4),
+            "rootFolderPath": settings.get("root_folder_path", "/volume2/Media/Movies"),
             "monitored": True,
             "addOptions": {"searchForMovie": True},
         }
@@ -171,3 +172,54 @@ async def get_movie_health() -> str:
         return "❌ Cannot connect to Radarr."
     except Exception as e:
         return f"❌ Health check failed: {type(e).__name__}: {e}"
+
+
+@tool
+async def radarr_list_quality_profiles() -> str:
+    """List available quality profiles for movies."""
+    try:
+        profiles = await _client()._get("/qualityprofile")
+        if not profiles:
+            return "No quality profiles found."
+        lines = ["Available Radarr quality profiles:\n"]
+        for p in profiles:
+            name = p.get("name", "Unknown")
+            pid = p.get("id", "N/A")
+            lines.append(f"  • {name} (ID: {pid})")
+        return "\n".join(lines)
+    except httpx.ConnectError:
+        return "❌ Cannot connect to Radarr."
+    except Exception as e:
+        return f"❌ Failed to list quality profiles: {type(e).__name__}: {e}"
+
+
+@tool
+async def radarr_list_root_folders() -> str:
+    """List available root folders for movies."""
+    try:
+        folders = await _client()._get("/rootfolder")
+        if not folders:
+            return "No root folders found."
+        lines = ["Available Radarr root folders:\n"]
+        for f in folders:
+            path = f.get("path", "Unknown")
+            fid = f.get("id", "N/A")
+            free_space = f.get("freeSpace", "0")
+            lines.append(f"  • {path} (ID: {fid}, Free: {free_space})")
+        return "\n".join(lines)
+    except httpx.ConnectError:
+        return "❌ Cannot connect to Radarr."
+    except Exception as e:
+        return f"❌ Failed to list root folders: {type(e).__name__}: {e}"
+
+
+@tool
+async def refresh_movie(movie_id: int) -> str:
+    """Refresh a movie's metadata and disk scan."""
+    try:
+        result = await _client()._post("/command", {"name": "RefreshMovie", "movieId": movie_id})
+        return f"✅ Refresh triggered for movie ID {movie_id}."
+    except httpx.ConnectError:
+        return "❌ Cannot connect to Radarr."
+    except Exception as e:
+        return f"❌ Failed to refresh movie: {type(e).__name__}: {e}"

@@ -61,11 +61,12 @@ async def search_tv(query: str) -> str:
 async def add_tv_show(tvdb_id: int, title: str) -> str:
     """Add a TV show to the monitored library by its TVDB ID."""
     try:
+        settings = get_settings().sonarr
         body = {
             "tvdbId": tvdb_id,
             "title": title,
-            "qualityProfileId": 1,
-            "rootFolderPath": "/tv/",
+            "qualityProfileId": settings.get("quality_profile_id", 4),
+            "rootFolderPath": settings.get("root_folder_path", "/volume2/Media/TV"),
             "monitored": True,
             "addOptions": {"searchForMissingEpisodes": True},
             "seriesType": "standard",
@@ -199,3 +200,70 @@ async def get_tv_health() -> str:
         return "❌ Cannot connect to Sonarr."
     except Exception as e:
         return f"❌ Health check failed: {type(e).__name__}: {e}"
+
+
+@tool
+async def sonarr_list_quality_profiles() -> str:
+    """List available quality profiles for TV shows."""
+    try:
+        profiles = await _client()._get("/qualityprofile")
+        if not profiles:
+            return "No quality profiles found."
+        lines = ["Available Sonarr quality profiles:\n"]
+        for p in profiles:
+            name = p.get("name", "Unknown")
+            pid = p.get("id", "N/A")
+            lines.append(f"  • {name} (ID: {pid})")
+        return "\n".join(lines)
+    except httpx.ConnectError:
+        return "❌ Cannot connect to Sonarr."
+    except Exception as e:
+        return f"❌ Failed to list quality profiles: {type(e).__name__}: {e}"
+
+
+@tool
+async def sonarr_list_root_folders() -> str:
+    """List available root folders for TV shows."""
+    try:
+        folders = await _client()._get("/rootfolder")
+        if not folders:
+            return "No root folders found."
+        lines = ["Available Sonarr root folders:\n"]
+        for f in folders:
+            path = f.get("path", "Unknown")
+            fid = f.get("id", "N/A")
+            free_space = f.get("freeSpace", "0")
+            lines.append(f"  • {path} (ID: {fid}, Free: {free_space})")
+        return "\n".join(lines)
+    except httpx.ConnectError:
+        return "❌ Cannot connect to Sonarr."
+    except Exception as e:
+        return f"❌ Failed to list root folders: {type(e).__name__}: {e}"
+
+
+@tool
+async def refresh_tv_show(series_id: int) -> str:
+    """Refresh a TV show's metadata and disk scan."""
+    try:
+        result = await _client()._post("/command", {"name": "RefreshSeries", "seriesId": series_id})
+        return f"✅ Refresh triggered for series ID {series_id}."
+    except httpx.ConnectError:
+        return "❌ Cannot connect to Sonarr."
+    except Exception as e:
+        return f"❌ Failed to refresh TV show: {type(e).__name__}: {e}"
+
+
+@tool
+async def search_season(series_id: int, season_number: int) -> str:
+    """Search for all episodes in a specific season."""
+    try:
+        result = await _client()._post("/command", {
+            "name": "SeasonSearch",
+            "seriesId": series_id,
+            "seasonNumber": season_number
+        })
+        return f"✅ Season search triggered for series ID {series_id}, season {season_number}."
+    except httpx.ConnectError:
+        return "❌ Cannot connect to Sonarr."
+    except Exception as e:
+        return f"❌ Failed to search season: {type(e).__name__}: {e}"

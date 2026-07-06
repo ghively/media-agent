@@ -242,12 +242,12 @@ async def sabnzbd_resume() -> str:
 
 
 @tool
-async def sabnzbd_add_nzb(nzb_url: str, category: str = "") -> str:
+async def sabnzbd_add_nzb(nzb_url: str, category: str = "movies") -> str:
     """Add an NZB to SABnzbd for download.
 
     Args:
-        nzb_url: URL to the .nzb file or a magnet link.
-        category: Optional category (e.g., 'tv', 'movies', 'music').
+        nzb_url: URL to the .nzb file.
+        category: Category for the download — "movies", "tv", "music", or "books".
     """
     try:
         params = {"mode": "addurl", "name": nzb_url}

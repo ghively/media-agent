@@ -19,9 +19,13 @@ services:
   sonarr:
     url: "http://192.168.0.133:8989"
     api_key: "${SONARR_API_KEY}"
+    quality_profile_id: 4
+    root_folder_path: "/volume2/Media/TV"
   radarr:
     url: "http://192.168.0.133:8310"
     api_key: "${RADARR_API_KEY}"
+    quality_profile_id: 4
+    root_folder_path: "/volume2/Media/Movies"
   emby:
     url: "http://192.168.0.144:8096"
     api_key: "${EMBY_API_KEY}"

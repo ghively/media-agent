@@ -32,10 +32,11 @@ class DownloadStationError(Exception):
 
 
 class DownloadStationClient:
-    """Async client for Synology Download Station API (V6 SID auth).
+    """Async client for Synology Download Station API (V7 SID auth with auto-discovery).
 
     Credentials go in a POST body; every call is a login → request → logout
-    cycle so sessions are not leaked.
+    cycle so sessions are not leaked. Automatically discovers the correct auth
+    endpoint path and version for DSM 7.x.
     """
 
     def __init__(
@@ -50,16 +51,38 @@ class DownloadStationClient:
         self.password = password
         self.timeout = timeout
         self._sid: str | None = None
+        self._auth_path: str | None = None
+        self._auth_version: int | None = None
+
+    async def _discover_auth(self, client: httpx.AsyncClient) -> tuple[str, int]:
+        """Query SYNO.API.Info to find the auth endpoint path and version."""
+        resp = await client.get(
+            f"{self.base_url}{DS_API_BASE}/query.cgi",
+            params={"api": "SYNO.API.Info", "version": "1", "method": "query", "query": "all"}
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        auth_info = data.get("data", {}).get("SYNO.API.Auth", {})
+        path = auth_info.get("path", "entry.cgi")
+        max_version = auth_info.get("maxVersion", 7)
+        # Use version 7 if available, otherwise use maxVersion
+        version = 7 if max_version >= 7 else max_version
+        return path, version
 
     async def _login(self, client: httpx.AsyncClient) -> bool:
-        """Authenticate with V6 SID login (credentials in POST body). True on success."""
+        """Authenticate with V7/V6 SID login (credentials in POST body). True on success."""
         if not self.username or not self.password:
             return False
+        
+        # Discover auth endpoint and version if not already done
+        if not self._auth_path or not self._auth_version:
+            self._auth_path, self._auth_version = await self._discover_auth(client)
+        
         resp = await client.post(
-            f"{self.base_url}{DS_API_BASE}/auth.cgi",
+            f"{self.base_url}{DS_API_BASE}/{self._auth_path}",
             data={
                 "api": "SYNO.API.Auth",
-                "version": "6",
+                "version": str(self._auth_version),
                 "method": "login",
                 "account": self.username,
                 "passwd": self.password,
