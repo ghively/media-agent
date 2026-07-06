@@ -220,17 +220,43 @@ async def list_movies() -> str:
 
 @tool
 async def get_movie_queue() -> str:
-    """Check current Radarr download queue."""
+    """Check current Radarr download queue with full progress details."""
     try:
         result = await _client()._get("/queue")
         records = result.get("records", []) if isinstance(result, dict) else result
         if not records:
             return "Radarr download queue is empty."
-        lines = [f"{len(records)} item(s) in queue:\n"]
+        lines = [f"Radarr queue — {len(records)} item(s):\n"]
         for r in records:
             title = r.get("title", "Unknown")
             status = r.get("status", "unknown")
-            lines.append(f"  • {title} — {status}")
+            size = r.get("size", 0) or 0
+            sizeleft = r.get("sizeleft", 0) or 0
+            timeleft = r.get("timeleft", "")
+            eta = r.get("estimatedCompletionTime", "")
+            quality = r.get("quality", {}).get("quality", {}).get("name", "")
+            dl_status = r.get("trackedDownloadStatus", "")
+
+            if size > 0:
+                done_mb = (size - sizeleft) / (1024 * 1024)
+                total_mb = size / (1024 * 1024)
+                pct = round(((size - sizeleft) / size) * 100)
+                size_str = f"{done_mb:.0f}/{total_mb:.0f} MB ({pct}%)"
+            else:
+                pct = 0
+                size_str = "?"
+
+            parts = [f"  • {title}"]
+            if quality:
+                parts.append(f"[{quality}]")
+            parts.append(f"— {status}")
+            if size > 0:
+                parts.append(f"({size_str})")
+            if timeleft and timeleft != "0:00:00":
+                parts.append(f"~{timeleft} left")
+            if dl_status == "warning":
+                parts.append("⚠️")
+            lines.append(" ".join(parts))
         return "\n".join(lines)
     except httpx.ConnectError:
         return "❌ Cannot connect to Radarr."
