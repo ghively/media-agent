@@ -57,8 +57,35 @@ def _run_server(host: str, port: int):
     from src.interfaces.dashboard import mount_dashboard
     from src.interfaces.chat_page import mount_chat_page
     from src.interfaces.openai_api import app as api_app
+    from src.interfaces.api import router as api_router
     mount_dashboard(api_app)
     mount_chat_page(api_app)
+    api_app.include_router(api_router)
+
+    # Serve the built React frontend (if present)
+    import os
+    frontend_dist = os.environ.get("FRONTEND_DIST", "/app/frontend/dist")
+    if os.path.isdir(frontend_dist):
+        from fastapi.staticfiles import StaticFiles
+        from fastapi.responses import FileResponse
+
+        # Mount static assets (JS, CSS, images)
+        api_app.mount(
+            "/assets",
+            StaticFiles(directory=os.path.join(frontend_dist, "assets")),
+            name="frontend-assets",
+        )
+
+        # SPA fallback — all non-API, non-doc routes return index.html
+        @api_app.get("/{full_path:path}", include_in_schema=False)
+        async def spa_fallback(full_path: str):
+            # Don't intercept API or v1 routes
+            if full_path.startswith(("api/", "v1/", "dashboard", "chat", "health")):
+                return None
+            index = os.path.join(frontend_dist, "index.html")
+            if os.path.isfile(index):
+                return FileResponse(index)
+            return None
 
     # Start the scheduler once uvicorn's event loop is running —
     # AsyncIOScheduler must attach to the running asyncio loop, so starting

@@ -1,3 +1,13 @@
+# ── Stage 1: Build the React frontend ──────────────────────────────────
+FROM node:22-slim AS frontend-build
+
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci --silent || npm install --silent
+COPY frontend/ ./
+RUN npm run build
+
+# ── Stage 2: Python runtime ───────────────────────────────────────────
 FROM python:3.12-slim
 
 # System dependencies
@@ -30,6 +40,9 @@ RUN pip install --no-cache-dir \
 # Application code
 COPY --chown=media:media . .
 COPY --chown=media:media config/ ./config/
+
+# Built frontend from Stage 1
+COPY --from=frontend-build --chown=media:media /frontend/dist ./frontend/dist
 
 # Run as non-root
 USER media

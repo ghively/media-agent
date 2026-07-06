@@ -1,25 +1,10 @@
-# Secrets - NEVER commit
+node_modules/
+dist/
+tsconfig.tsbuildinfo
 .env
-.env.keys
-config/settings.yaml
-config/subscriptions.yaml
-# Note: .env.example IS committed as a template
-
-# Python
+.env.*
+!.env.example
 __pycache__/
 *.pyc
 .pytest_cache/
-*.egg-info/
-dist/
-build/
-.venv/
-venv/
-
-# State
-/state/
-*.db
-*.sqlite
-
-# OS
-.DS_Store
-Thumbs.db
+state/

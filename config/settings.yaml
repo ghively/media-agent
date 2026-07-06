@@ -1,0 +1,44 @@
+server:
+  host: "0.0.0.0"
+  port: 8088
+  api_key: "${MEDIA_AGENT_API_KEY}"
+
+llm:
+  ollama_url: "http://agent-lab-ollama-1:11435"
+  ollama_model: "qwen2.5:7b"
+  hosted_url: ""
+  hosted_key: ""
+  hosted_model: ""
+  temperature: 0.7
+  timeout: 60
+
+services:
+  sonarr:
+    url: "${SONARR_URL}"
+    api_key: "${SONARR_API_KEY}"
+    quality_profile_id: 4
+    root_folder_path: "/volume2/Media/TV"
+  radarr:
+    url: "${RADARR_URL}"
+    api_key: "${RADARR_API_KEY}"
+    quality_profile_id: 4
+    root_folder_path: "/volume2/Media/Movies"
+  emby:
+    url: "${EMBY_URL}"
+    api_key: "${EMBY_API_KEY}"
+  sabnzbd:
+    url: "${SABNZBD_URL}"
+    api_key: "${SABNZBD_API_KEY}"
+  download_station:
+    url: "http://192.168.0.133:5000"
+    username: "${DS_USER:-}"
+    password: "${DS_PASS:-}"
+  youtube:
+    download_path: "/tmp/youtube_downloads"
+    subscriptions_file: "/state/youtube_subs.json"
+  audible:
+    auth_dir: "/config/audible"
+    download_dir: "/tmp/audible_downloads"
+  roms:
+    download_dir: "/tmp/rom_downloads"
+    library_dir: "/media/roms"
