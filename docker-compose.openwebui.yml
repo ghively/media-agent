@@ -1,0 +1,32 @@
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:8090:8080"
+    environment:
+      # Point at the media agent's OpenAI-compatible API
+      - OPENAI_API_BASE_URL=http://media-agent-claude:8088/v1
+      - OPENAI_API_KEY=none
+      # Single-user mode — first signup becomes admin, no further auth needed
+      - ENABLE_SIGNUP=True
+      - WEBUI_AUTH=True
+      # Disable RAG / web search — we only want chat
+      - ENABLE_RAG_WEB_SEARCH=False
+      - ENABLE_OPENAI_API=True
+      - ENABLE_OLLAMA_API=False
+    volumes:
+      - open-webui-data:/app/backend/data
+    networks:
+      - agent-mesh
+      - default
+
+networks:
+  agent-mesh:
+    external: true
+    name: agent-lab_agent-mesh
+  default:
+
+volumes:
+  open-webui-data:
