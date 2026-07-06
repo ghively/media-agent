@@ -9,12 +9,13 @@ server:
 llm:
   ollama_url: "http://agent-lab-ollama-1:11435"
   # Recommended models (smallest that work well with this agent's ~60 tools):
-  #   qwen3.5:9b  — best quality/size balance (default; ~6.6 GB download)
+  #   qwen2.5:7b  — default: non-thinking, solid tool calling (~4.7 GB)
+  #   qwen3.5:9b  — best quality/size if you want a thinking model (~6.6 GB);
+  #                 set reasoning: false below (leaks are also stripped in-app)
   #   qwen3.5:4b  — smallest that stays reliable for tool calling (~3.4 GB)
-  #   qwen3:8b    — proven fallback if qwen3.5 misbehaves
   # Models below ~4B (qwen3.5:2b, llama3.2:3b) drop or malform tool calls
   # too often with a tool list this large — not recommended.
-  ollama_model: "qwen3.5:9b"
+  ollama_model: "qwen2.5:7b"
   # IMPORTANT: Ollama's default context (2048-4096) is too small for this
   # agent's system prompt + tool schemas. When the context overflows, Ollama
   # silently truncates the prompt and the model starts printing tool-call
@@ -22,10 +23,12 @@ llm:
   num_ctx: 16384
   # Keep the model loaded between requests (avoids reload latency)
   keep_alive: "10m"
-  # For thinking models (qwen3/qwen3.5): false asks Ollama to disable the
-  # reasoning trace. Leave unset (null) if your model rejects the flag —
-  # leaked <think> blocks are stripped from responses either way.
-  reasoning: false
+  # ONLY for thinking models (qwen3/qwen3.5, deepseek-r1): set to false to
+  # ask Ollama to disable the reasoning trace. MUST stay null for
+  # non-thinking models (qwen2.5, llama3.x) — Ollama rejects the think flag
+  # for models that don't support it. Leaked <think> blocks are stripped
+  # from responses in-app either way.
+  reasoning: null
   # Optional hosted fallback, used automatically when Ollama is unreachable
   hosted_url: ""
   hosted_key: ""

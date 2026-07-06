@@ -27,12 +27,22 @@ tool-calling benchmarks:
 
 | Model | Size | Notes |
 |---|---|---|
-| `qwen3.5:9b` | ~6.6 GB | **Default.** Best quality/size balance; fits 8 GB VRAM / 16 GB Mac |
+| `qwen2.5:7b` | ~4.7 GB | **Default.** Non-thinking, solid tool calling, no reasoning-trace handling needed |
+| `qwen3.5:9b` | ~6.6 GB | Best quality/size balance; thinking model — set `llm.reasoning: false` |
 | `qwen3.5:4b` | ~3.4 GB | Smallest recommended; good on CPU-only or 6 GB VRAM boxes |
-| `qwen3:8b` | ~5.2 GB | Proven fallback if qwen3.5 misbehaves |
+| `qwen3:8b` | ~5.2 GB | Proven alternative in the same class |
 
 Not recommended below ~4B (`qwen3.5:2b`, `llama3.2:3b`, `qwen3.5:0.8b`): with
 a tool list this large they drop or malform tool calls too often to be useful.
+
+**Thinking vs non-thinking models:** earlier versions of this agent streamed
+raw model tokens, so thinking models (qwen3/qwen3.5) leaked `<think>` traces
+and tool-call JSON into chat — the practical workaround was a non-thinking
+model like `qwen2.5:7b`, which remains the default. Streaming is now filtered
+and reasoning traces are stripped in-app, so thinking models work too; they
+generally tool-call better per parameter, at the cost of extra latency while
+they think. If you use one, set `llm.reasoning: false` (and keep `reasoning`
+unset/null for non-thinking models — Ollama rejects the flag for them).
 
 ### Ollama settings that matter
 
@@ -44,7 +54,9 @@ a tool list this large they drop or malform tool calls too often to be useful.
   `settings.yaml`); don't go below 8192.
 - **Thinking models** (qwen3/qwen3.5, deepseek-r1) emit `<think>` traces.
   Set `llm.reasoning: false` to ask Ollama to disable them; the agent also
-  strips any leaked traces from responses as a safety net.
+  strips any leaked traces from responses as a safety net. Do not set
+  `reasoning` for non-thinking models (qwen2.5, llama3.x) — Ollama errors
+  on the flag for models without thinking support.
 - `llm.keep_alive` (default `10m`) keeps the model loaded between requests
   so follow-up messages don't pay the model-load latency.
 

@@ -82,7 +82,7 @@ def create_llm() -> MediaLLM:
     llm_cfg = get_settings().llm
     return MediaLLM(
         ollama_url=llm_cfg.get("ollama_url", "http://localhost:11434"),
-        ollama_model=llm_cfg.get("ollama_model", "qwen3.5:9b"),
+        ollama_model=llm_cfg.get("ollama_model", "qwen2.5:7b"),
         temperature=float(llm_cfg.get("temperature", 0) or 0),
         num_ctx=int(llm_cfg.get("num_ctx", 16384)),
         keep_alive=llm_cfg.get("keep_alive", "10m"),
