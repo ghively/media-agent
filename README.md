@@ -2,9 +2,21 @@
 
 A standalone, containerized agent for managing a personal media ecosystem.
 
-## Current Status: MVP (Sonarr + Radarr + Emby)
+## Current Status: Full stack — all phases built and functional
 
-See [SPEC.md](SPEC.md) for the full design specification.
+All service integrations are first-class: Sonarr, Radarr, Emby, SABnzbd,
+Synology Download Station, unified search, Bandcamp, Audible, ROMs
+(Internet Archive), YouTube (yt-dlp), and library organization — 58 tools
+total, with a config-driven approval gate on high-impact actions and a
+pytest suite covering the agent's chat behavior end-to-end (no live
+services needed):
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+See [SPEC.md](SPEC.md) for the original design specification.
 
 ## Quick Start
 
@@ -23,7 +35,7 @@ docker exec -it media-agent python -m src.main --interactive
 
 - **[docs/AGENT.md](docs/AGENT.md)** — agent architecture, the full 58-tool
   catalog with risk ratings, built-in workflows, model profiles (thinking vs
-  non-thinking) and the recommended approval policy.
+  non-thinking), the approval system, and the bulletproofing roadmap.
 - [SPEC.md](SPEC.md) — original design specification.
 
 ## Local model recommendations (Ollama)

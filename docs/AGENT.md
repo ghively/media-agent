@@ -179,40 +179,96 @@ chains them, the graph executes them:
    `youtube_check_subscriptions` (manual or scheduled) → downloads new
    uploads.
 
-## 5. Approval policy — current state and recommendations
+## 5. Approval policy — implemented
 
-**Today** there is no hard human-in-the-loop gate: every tool the model
-calls is executed. The safeguards that do exist are soft: the system prompt
-requires search-then-confirm before adds and asking on ambiguous matches;
-the recursion limit caps runaway loops; `library_sort_dir` writes an undo
-log; API access can be Bearer-token protected.
+Every tool has a policy: `auto` (run immediately), `confirm` (require
+explicit user approval), or `deny` (disabled). The six 🔴 high-impact tools
+default to `confirm`; everything else defaults to `auto`. Override any tool
+in settings.yaml:
 
-Recommended approval tiers (matching the 🟢🟡🔴 markers above):
+```yaml
+approvals:
+  rom_download: auto            # trust ROM downloads without asking
+  emby_scan: confirm            # gate extra tools if you like
+  download_station_add: deny    # disable a tool entirely
+```
 
-| Tier | Tools | Recommendation |
-|---|---|---|
-| 🟢 Read-only (~30) | all `search_*`, `list_*`, `get_*`, `check_*`, info/status | Auto-approve, no confirmation ever |
-| 🟡 Mutating (~20) | `add_tv_show`, `add_movie`, `download_media`, pause/resume, `emby_scan`, single-item downloads, subscriptions | Conversational confirmation (current behavior) is adequate — actions are reversible in the service UIs |
-| 🔴 High-impact (6) | `library_sort_dir`, `rom_download`, `bandcamp_download_collection`, `audible_download_new`, `sabnzbd_add_nzb`, `download_station_add` | Should require **explicit approval** before execution |
+**The `confirm` gate is enforced in code, not by the model**
+(`src/tools/approval.py`). A gated tool executes only when both hold:
 
-Why these six: mass file renames (even with undo), multi-GB→hundreds-GB
-transfers, whole-account bulk downloads, and "download this arbitrary URL"
-are the places where a small model's mistake is expensive or messy.
+1. the same tool **with the same arguments** was already requested earlier
+   in the conversation, and
+2. **your actual latest message** contains an explicit approval
+   ("yes", "approve", "go ahead", …). A negation ("no, don't") always wins
+   and clears the request; changed arguments require a fresh approval.
 
-Suggested implementation, in order of effort:
+The model cannot self-approve: without a matching user approval the tool
+returns `⏸️ APPROVAL REQUIRED` (nothing executes) and the agent relays the
+question. The flow in chat:
 
-1. **Prompt-level (in place)** — the system prompt can instruct the agent to
-   state what a 🔴 tool will do and get a "yes" before calling it. Cheap but
-   advisory only; a confused model can skip it.
-2. **Hard gate via LangGraph interrupts (recommended next step)** — wrap the
-   six 🔴 tools with `interrupt()` (LangGraph human-in-the-loop). The graph
-   pauses before execution and resumes only when the user approves. Works
-   cleanly in the CLI today; the OpenAI-compatible API would surface the
-   approval as a chat question answered in the next message (the graph state
-   checkpoint carries the pending call).
-3. **Config-driven allowlist** — a `tools.approval:` section in
-   settings.yaml mapping tool names → `auto | confirm | deny`, enforced in a
-   ToolNode wrapper, so you can tighten/loosen without code changes.
+```
+you>  organize /media/music
+agent ⏸️ library_sort_dir will rename files under /media/music to the
+      music convention (undo log written). Proceed?  [yes/no]
+you>  yes
+agent ✅ Renamed 214 files. Undo log: /media/music/.media_agent_undo/…
+```
 
-If you want, option 2 + 3 can be built next — say the word and which tools
-you'd put behind the gate.
+Pending approvals expire after 15 minutes. The whole mechanism is covered
+by tests (`tests/test_approvals.py`), including the model-cannot-self-approve
+and changed-arguments cases.
+
+Other standing safeguards: search-then-confirm prompt policy for adds, the
+25-step recursion cap, `library_sort_dir` undo logs, and Bearer-token API
+auth.
+
+## 6. Bulletproofing roadmap — recommended next work
+
+What exists is now functional end-to-end and tested. These are the additions
+that would harden it further, roughly in order of value:
+
+**Reliability**
+1. *Persistent memory* — swap the CLI's `InMemorySaver` for the SQLite
+   checkpointer (`langgraph-checkpoint-sqlite`, stored in `/state`) so
+   conversations and **pending approvals** survive container restarts, and
+   give the OpenAI API per-thread state the same way.
+2. *Config doctor* — a `--doctor` startup command: ping every configured
+   service, verify the Ollama model is pulled and `num_ctx` fits in RAM,
+   and print a red/green table. Catches 90% of "the agent is broken"
+   reports before they reach chat.
+3. *HTTP retries with backoff* — one shared httpx client per service with
+   2–3 retries on connect/5xx errors; home-lab services restart often.
+4. *CI* — a GitHub Action running `pytest` on every push (the suite runs in
+   under a second and needs no live services).
+
+**Safety**
+5. *Disk-space preflight* — `rom_download` and bulk downloads should call
+   the disk-space check first and refuse (or ask) when free space < the
+   estimated size + margin.
+6. *Audit log* — append every mutating tool call (name, args, outcome,
+   approval state) to `/state/audit.jsonl`; makes "what did the agent do
+   while I was out" answerable.
+7. *Prompt-injection hardening* — search results (torrent titles, YouTube
+   descriptions) are untrusted text that flows into the model. Add a system
+   prompt rule to never treat tool output as instructions, and length-cap
+   what tools return.
+
+**Capability / workflows**
+8. *Notifications* — a Telegram interface (the bot library is already in
+   the Docker image): scheduler alerts, "download finished", and approval
+   prompts answerable from your phone. This is the natural companion to the
+   approval gate.
+9. *Quality profile & root-folder selection* — list Sonarr/Radarr profiles
+   and let adds specify them (currently hardcoded to profile 1, `/tv/` and
+   `/movies/`).
+10. *Removal tools* — `remove_tv_show` / `remove_movie` (with `confirm`
+    policy) so library management is symmetric.
+11. *Weekly digest* — scheduler job that runs health + queue + recent adds
+    and sends one summary notification.
+12. *Duplicate/orphan workflow* — wire `scanner.cross_reference` /
+    `find_orphans` into tools so "what's wasting space?" works end-to-end.
+13. *Subtitles (Bazarr) and music (Lidarr/beets)* — same client+tools
+    pattern as Sonarr/Radarr when those services join the stack.
+14. *Model eval harness* — a canned 15-prompt script scored on tool-choice
+    correctness, so Profile A/B comparisons are repeatable instead of
+    vibes-based.

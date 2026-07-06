@@ -52,6 +52,24 @@ services:
   sabnzbd:
     url: "${SABNZBD_URL:-http://192.168.0.133:8080}"
     api_key: "${SABNZBD_API_KEY}"
+  download_station:
+    url: "${DOWNLOAD_STATION_URL:-http://192.168.0.133:5000}"
+    username: "${DOWNLOAD_STATION_USER:-}"
+    password: "${DOWNLOAD_STATION_PASSWORD:-}"
+  youtube:
+    download_path: "${YOUTUBE_DOWNLOAD_PATH:-/media/youtube}"
+    subscriptions_file: "${YOUTUBE_SUBSCRIPTIONS_FILE:-/state/youtube_subscriptions.json}"
+
+# Approval policy per tool: auto | confirm | deny.
+# Six high-impact tools default to confirm even if this section is empty:
+#   library_sort_dir, rom_download, bandcamp_download_collection,
+#   audible_download_new, sabnzbd_add_nzb, download_station_add
+# `confirm` is enforced in code: the tool does not run until your actual
+# reply contains an explicit yes/approve. Override examples:
+approvals: {}
+#  rom_download: auto          # trust ROM downloads without asking
+#  emby_scan: confirm          # gate additional tools if you like
+#  download_station_add: deny  # disable a tool entirely
 
 scheduler:
   enabled: false
