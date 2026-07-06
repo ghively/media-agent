@@ -178,7 +178,7 @@ async def _stream_response(messages: list[ChatMessage]):
             stream_mode="updates",
         ):
             for node, payload in update.items():
-                if node != "agent":
+                if node not in ("model", "agent"):
                     continue  # tool results are inputs to the model, not chat output
                 for message in (payload or {}).get("messages", []):
                     if getattr(message, "tool_calls", None):

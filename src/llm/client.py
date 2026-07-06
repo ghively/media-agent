@@ -1,9 +1,9 @@
-"""LLM client — local-first (Ollama) with optional hosted fallback.
+"""LLM client — Ollama is the primary model; hosted endpoint is optional backup.
 
-Local-first routing is implemented with LangChain's native
-``Runnable.with_fallbacks``: every call tries Ollama first and only falls
-back to the hosted endpoint when the local call raises. (This replaces an
-earlier hand-rolled circuit breaker that was never wired into the agent.)
+Every request goes to Ollama. If a hosted endpoint is configured, the agent
+graph attaches LangChain's ``ModelFallbackMiddleware`` so a FAILED Ollama
+call (server down, model crashed) retries against it — nothing else ever
+routes there. Leave the hosted settings empty for a pure-Ollama deployment.
 
 Ollama specifics that matter for a tool-calling agent:
 
@@ -19,7 +19,6 @@ Ollama specifics that matter for a tool-calling agent:
   ``src.llm.postprocess``.
 """
 from langchain_core.language_models import BaseChatModel
-from langchain_core.runnables import Runnable
 
 
 class MediaLLM:
@@ -63,16 +62,6 @@ class MediaLLM:
                 temperature=temperature,
             )
 
-    def agent_model(self, tools: list) -> Runnable:
-        """Return the model for the agent graph, tools bound, local-first.
-
-        Tools are bound here (rather than by ``create_react_agent``) so the
-        fallback model gets the same tool schemas as the local one.
-        """
-        local = self.local_llm.bind_tools(tools)
-        if self.fallback_llm is not None:
-            return local.with_fallbacks([self.fallback_llm.bind_tools(tools)])
-        return local
 
 
 def _coerce_reasoning(value) -> bool | None:

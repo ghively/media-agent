@@ -9,6 +9,8 @@ can do, and which actions deserve human approval.
                  ┌────────────────────────────────────────────────┐
    you ──────────►  Interfaces                                     │
                  │   • CLI REPL / one-shot   (src/interfaces/cli)  │
+                 │   • Browser chat page     (…/chat_page → /chat) │
+                 │   • Telegram two-way chat (…/telegram_chat)     │
                  │   • OpenAI-compatible API (…/openai_api)        │
                  │     └ works with Open WebUI, etc.               │
                  │   • Web dashboard         (…/dashboard)         │
@@ -17,7 +19,7 @@ can do, and which actions deserve human approval.
                                  │ messages
                  ┌───────────────▼────────────────────────────────┐
                  │  Agent graph (src/graphs/conversational.py)    │
-                 │  LangGraph create_react_agent:                 │
+                 │  langchain.agents.create_agent (v1):           │
                  │    model turn → tool calls? ──yes──► run tools │
                  │        ▲                                │      │
                  │        └────── tool results ────────────┘      │
@@ -29,9 +31,9 @@ can do, and which actions deserve human approval.
         ▼                        ▼                          ▼
   LLM routing             Tool registry              Post-processing
   (src/llm/client)        (src/tools/registry)       (src/llm/postprocess)
-  Ollama first,           62 tools across 12         strips <think> traces
-  hosted fallback         services (below)           and tool-call syntax
-  via with_fallbacks                                 from every reply
+  Ollama primary;         65 tools across 12         strips <think> traces
+  optional hosted         services (below)           and tool-call syntax
+  backup middleware                                  from every reply
 ```
 
 Key behaviors:
@@ -79,7 +81,7 @@ before adding on ambiguity, no JSON/`<think>` fragments in replies, latency.
 Keep `OLLAMA_NUM_CTX=16384` for either profile — below ~8k the tool schemas
 get truncated by Ollama and tool calling degrades sharply.
 
-## 3. Tool catalog (62 tools)
+## 3. Tool catalog (65 tools)
 
 Risk legend: 🟢 read-only · 🟡 mutating (adds/changes state, reversible) ·
 🔴 destructive or externally significant (renames files, spends
@@ -109,10 +111,13 @@ bandwidth/quota, touches accounts).
 | Tool | Risk | Purpose |
 |---|---|---|
 | `emby_search` / `emby_recent` / `emby_libraries` / `emby_get_item` | 🟢 | Search/browse the library |
+| `emby_continue_watching` / `emby_next_up` | 🟢 | "What were we watching?" / "what's next?" |
 | `emby_scan` | 🟡 | Trigger a library refresh |
 
-### Health
-`check_all_health`, `check_disk_space`, `check_queue_status` — all 🟢.
+### Health & briefing
+`check_all_health`, `check_disk_space`, `check_queue_status`, and
+`daily_briefing` (one-call "what's new?" aggregate: problems, downloads,
+airing soon, recently added, next up) — all 🟢.
 
 ### Unified search
 | Tool | Risk | Purpose |
@@ -284,32 +289,46 @@ built-in `decrypt` command), bandcamp-dl's real flags (`--base-dir`,
 flag dedup + `approximate_date` for subscription checks + ffmpeg presence
 check, and internetarchive 5.x (`fields=` on search, `silent=` removed).
 
-### LangChain/LangGraph posture (July 2026 review)
+### LangChain/LangGraph posture (July 2026)
 
-- `create_react_agent` is deprecated in LangGraph v1 (removed in v2). The
-  replacement (`langchain.agents.create_agent`) **cannot yet express our
-  Ollama→hosted fallback** (`RunnableWithFallbacks` unsupported — tracked
-  upstream in langchain#33129), so we deliberately stay on
-  `create_react_agent` with `langgraph <2` pinned. Revisit when the issue
-  closes.
-- The `InjectedState` approval gate is the sanctioned pattern for our
-  dual stateful-CLI/stateless-API architecture; LangGraph's `interrupt()` /
-  `HumanInTheLoopMiddleware` require per-thread persistence the OpenAI API
-  doesn't have.
-- Message-level streaming (`stream_mode="updates"`) is a deliberate
+- **Migrated to `langchain.agents.create_agent`** (LangChain v1) — the
+  deprecated `create_react_agent` is gone from the codebase and the suite
+  runs with zero deprecation warnings. To be clear about routing: **Ollama
+  is the primary model for every request**; the optional hosted endpoint is
+  attached via the official `ModelFallbackMiddleware` and only fires when
+  an Ollama call raises. Leave the hosted settings empty for pure Ollama.
+- History trimming is a `wrap_model_call` middleware; the model node is
+  named `model` under the new API (interfaces accept both names).
+- The `InjectedState` approval gate is unchanged and verified working under
+  `create_agent`'s tool node — still the right pattern for our mix of
+  stateful (CLI/Telegram) and stateless (OpenAI API) interfaces.
+- Message-level streaming (`stream_mode="updates"`) remains a deliberate
   correctness choice over token-level `stream_mode="messages"`, which would
   re-open think-tag leakage for thinking models mid-stream.
 
-## 7. Remaining roadmap
+## 7. Talking to the agent
 
-- *Two-way Telegram* — answering approval prompts from your phone (needs a
-  polling bot loop mapped into conversation threads).
-- *Per-thread API memory* — optional thread ids on the OpenAI API so
-  interrupt-based HITL and server-side history become possible.
+Four ways in, all sharing the same graph, tools, and approval gate:
+
+| Interface | Where | Memory |
+|---|---|---|
+| Browser chat | `http://<host>:8088/chat` | per-tab (history resent) |
+| Telegram | your bot DM (set `notifications.telegram_chat: true`) | persistent per chat; `/new` resets |
+| CLI | `python -m src.main --interactive` | persistent; `new` resets |
+| OpenAI-compatible API | `/v1/chat/completions` (Open WebUI etc.) | client-managed |
+
+Conversational patterns the agent maps to tools: "what's new?" →
+`daily_briefing`; "what were we watching?" → `emby_continue_watching`;
+"what should I watch next?" → `emby_next_up`; "what's on tonight?" →
+`get_tv_calendar`; small talk needs no tools at all.
+
+## 8. Remaining roadmap
+
 - *Duplicate/orphan workflow* — wire `scanner.cross_reference` /
   `find_orphans` into tools so "what's wasting space?" works end-to-end.
 - *Subtitles (Bazarr) and music (Lidarr/beets)* — same client+tools pattern
   as Sonarr/Radarr when those services join the stack.
 - *Token-level streaming for Profile A* — typing effect for non-thinking
   models via `stream_mode="messages"` with tool-call-chunk filtering.
-- *`create_agent` migration* — once upstream supports model fallbacks.
+- *Voice* — a Wyoming/HA-Assist or Whisper front-end feeding the same
+  OpenAI-compatible endpoint.

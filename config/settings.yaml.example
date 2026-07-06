@@ -85,6 +85,9 @@ approvals: {}
 notifications:
   telegram_bot_token: "${TELEGRAM_BOT_TOKEN:-}"
   telegram_chat_id: "${TELEGRAM_CHAT_ID:-}"
+  # Two-way chat: talk to the agent from Telegram (only the chat_id above
+  # is answered). Send /new in Telegram to reset the conversation.
+  telegram_chat: false
 
 scheduler:
   enabled: false

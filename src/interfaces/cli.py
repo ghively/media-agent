@@ -34,7 +34,9 @@ async def _run_turn(agent, console: Console, user_input: str, config: dict) -> N
             ):
                 for node, payload in update.items():
                     for message in (payload or {}).get("messages", []):
-                        if node == "agent":
+                        # the model node is "model" in langchain.agents
+                        # (was "agent" in langgraph.prebuilt)
+                        if node in ("model", "agent"):
                             for line in _tool_call_summary(message):
                                 console.print(f"  [dim]→ {line}[/]")
                             if not getattr(message, "tool_calls", None):

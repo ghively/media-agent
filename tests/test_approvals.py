@@ -127,7 +127,7 @@ def test_end_to_end_two_turn_approval_through_agent(fake_model_factory):
     """Full graph: model calls gated tool → blocked; user approves in the
     next turn → the same call executes."""
     from langgraph.checkpoint.memory import InMemorySaver
-    from langgraph.prebuilt import create_react_agent
+    from langchain.agents import create_agent
 
     gated = gate_tool(risky, "confirm")
     call = {"name": "risky", "args": {"path": "/media"}, "id": "c1", "type": "tool_call"}
@@ -137,7 +137,7 @@ def test_end_to_end_two_turn_approval_through_agent(fake_model_factory):
         AIMessage(content="", tool_calls=[{**call, "id": "c2"}]),
         AIMessage(content="Done — organized /media."),
     ]
-    agent = create_react_agent(
+    agent = create_agent(
         fake_model_factory(script), tools=[gated], checkpointer=InMemorySaver()
     )
     cfg = {"configurable": {"thread_id": "t"}}

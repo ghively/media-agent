@@ -5,7 +5,7 @@ import asyncio
 from langchain_core.messages import AIMessage
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 
 
 @tool
@@ -32,7 +32,7 @@ def _collect_stream(agent, message, config=None):
             stream_mode="updates",
         ):
             for node, payload in update.items():
-                if node != "agent":
+                if node not in ("model", "agent"):
                     continue
                 for msg in (payload or {}).get("messages", []):
                     if getattr(msg, "tool_calls", None):
@@ -52,7 +52,7 @@ def test_stream_never_leaks_tool_calls_or_think_tags(fake_model_factory):
         AIMessage(content="<think>two matches, must ask</think>"
                           "Two matches:\n- Severance (2022)\n- Severance (2006)\n\nWhich one?"),
     ]
-    agent = create_react_agent(fake_model_factory(script), tools=[search_tv])
+    agent = create_agent(fake_model_factory(script), tools=[search_tv])
     out = "\n".join(_collect_stream(agent, "add severance"))
 
     assert "Which one?" in out
@@ -87,7 +87,7 @@ def test_multi_turn_memory_resolves_follow_up(fake_model_factory):
 
     type(model)._generate = spying_generate
 
-    agent = create_react_agent(model, tools=[add_tv_show], checkpointer=InMemorySaver())
+    agent = create_agent(model, tools=[add_tv_show], checkpointer=InMemorySaver())
     cfg = {"configurable": {"thread_id": "t"}}
     _collect_stream(agent, "add severance", cfg)
     out = "\n".join(_collect_stream(agent, "the second one", cfg))
@@ -107,4 +107,4 @@ def test_registry_has_no_duplicate_names_and_expected_count():
     from src.tools.registry import all_tools
     names = [t.name for t in all_tools]
     assert len(names) == len(set(names))
-    assert len(names) == 62
+    assert len(names) == 65

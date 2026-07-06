@@ -80,14 +80,13 @@ def test_telegram_unconfigured_send_is_noop():
 
 def test_trim_history_bounds_message_count():
     from langchain_core.messages import AIMessage, HumanMessage
-    from src.graphs.conversational import _trim_history, MAX_CONTEXT_MESSAGES
+    from src.graphs.conversational import _trim, MAX_CONTEXT_MESSAGES
 
     messages = []
     for i in range(100):
         messages.append(HumanMessage(content=f"q{i}"))
         messages.append(AIMessage(content=f"a{i}"))
-    out = _trim_history({"messages": messages})
-    trimmed = out["llm_input_messages"]
+    trimmed = _trim(messages)
     assert len(trimmed) <= MAX_CONTEXT_MESSAGES
     assert trimmed[0].type == "human"  # never starts on a dangling tool/ai msg
     assert trimmed[-1].content == "a99"  # newest messages kept

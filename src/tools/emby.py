@@ -149,6 +149,59 @@ async def emby_scan() -> str:
 
 
 @tool
+async def emby_continue_watching() -> str:
+    """Show partially-watched items to resume ("what were we watching?")."""
+    try:
+        user_id = await _user_id()
+        result = await _client()._get(
+            f"/emby/Users/{user_id}/Items/Resume",
+            params={"Limit": "10", "Recursive": "true", "MediaTypes": "Video"},
+        )
+        items = result.get("Items", []) if isinstance(result, dict) else result
+        if not items:
+            return "Nothing in progress — you're all caught up."
+        lines = ["Continue watching:"]
+        for item in items[:10]:
+            name = item.get("Name", "Unknown")
+            series = item.get("SeriesName", "")
+            label = f"{series} — {name}" if series else name
+            ticks = item.get("UserData", {}).get("PlaybackPositionTicks", 0)
+            runtime = item.get("RunTimeTicks", 0)
+            pct = f" ({ticks * 100 // runtime}% watched)" if runtime else ""
+            lines.append(f"  • {label}{pct}")
+        return "\n".join(lines)
+    except httpx.ConnectError:
+        return "❌ Cannot connect to Emby."
+    except Exception as e:
+        return f"❌ Failed to get resume list: {type(e).__name__}: {e}"
+
+
+@tool
+async def emby_next_up() -> str:
+    """Show the next unwatched episode of shows in progress ("what should I watch next?")."""
+    try:
+        user_id = await _user_id()
+        result = await _client()._get(
+            "/emby/Shows/NextUp", params={"UserId": user_id, "Limit": "10"},
+        )
+        items = result.get("Items", []) if isinstance(result, dict) else result
+        if not items:
+            return "No next-up episodes — start something new from the library."
+        lines = ["Next up:"]
+        for item in items[:10]:
+            series = item.get("SeriesName", "Unknown")
+            season = item.get("ParentIndexNumber", 0)
+            episode = item.get("IndexNumber", 0)
+            name = item.get("Name", "")
+            lines.append(f"  • {series} S{season:02d}E{episode:02d} — {name}")
+        return "\n".join(lines)
+    except httpx.ConnectError:
+        return "❌ Cannot connect to Emby."
+    except Exception as e:
+        return f"❌ Failed to get next up: {type(e).__name__}: {e}"
+
+
+@tool
 async def emby_get_item(item_id: str) -> str:
     """Get details of a specific Emby media item by ID."""
     try:

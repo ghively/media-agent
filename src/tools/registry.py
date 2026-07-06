@@ -19,8 +19,10 @@ from src.tools.radarr import (
 )
 from src.tools.emby import (
     emby_search, emby_recent, emby_libraries, emby_scan, emby_get_item,
+    emby_continue_watching, emby_next_up,
 )
 from src.tools.health import check_all_health, check_disk_space, check_queue_status
+from src.tools.briefing import daily_briefing
 from src.tools.search import search_media, download_media
 from src.tools.sabnzbd import (
     sabnzbd_queue, sabnzbd_history, sabnzbd_status,
@@ -61,8 +63,9 @@ _raw_tools = [
     list_movie_profiles, remove_movie,
     # Library / Emby
     emby_search, emby_recent, emby_libraries, emby_scan, emby_get_item,
-    # Health
-    check_all_health, check_disk_space, check_queue_status,
+    emby_continue_watching, emby_next_up,
+    # Health / briefing
+    check_all_health, check_disk_space, check_queue_status, daily_briefing,
     # Unified search
     search_media, download_media,
     # SABnzbd

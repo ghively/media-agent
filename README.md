@@ -6,7 +6,7 @@ A standalone, containerized agent for managing a personal media ecosystem.
 
 All service integrations are first-class: Sonarr, Radarr, Emby, SABnzbd,
 Synology Download Station, unified search, Bandcamp, Audible, ROMs
-(Internet Archive), YouTube (yt-dlp), and library organization — 62 tools
+(Internet Archive), YouTube (yt-dlp), and library organization — 65 tools
 total, with a config-driven approval gate on high-impact actions and a
 pytest suite covering the agent's chat behavior end-to-end (no live
 services needed):
@@ -33,9 +33,13 @@ docker compose up -d
 docker exec -it media-agent python -m src.main --interactive
 ```
 
+Or just open **http://<host>:8088/chat** in a browser, or enable two-way
+**Telegram chat** (`notifications.telegram_chat: true`) and talk to the
+agent from your phone — same brain, same approval gate, every interface.
+
 ## Documentation
 
-- **[docs/AGENT.md](docs/AGENT.md)** — agent architecture, the full 62-tool
+- **[docs/AGENT.md](docs/AGENT.md)** — agent architecture, the full 65-tool
   catalog with risk ratings, built-in workflows, model profiles (thinking vs
   non-thinking), the approval system, and the bulletproofing roadmap.
 - [SPEC.md](SPEC.md) — original design specification.

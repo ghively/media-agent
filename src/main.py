@@ -53,10 +53,12 @@ def _run_server(host: str, port: int):
     import logging
     import uvicorn
 
-    # Mount dashboard on the existing FastAPI app
+    # Mount dashboard + browser chat on the existing FastAPI app
     from src.interfaces.dashboard import mount_dashboard
+    from src.interfaces.chat_page import mount_chat_page
     from src.interfaces.openai_api import app as api_app
     mount_dashboard(api_app)
+    mount_chat_page(api_app)
 
     # Start the scheduler once uvicorn's event loop is running —
     # AsyncIOScheduler must attach to the running asyncio loop, so starting
@@ -74,6 +76,17 @@ def _run_server(host: str, port: int):
                 logging.info(f"Registered {count} scheduled job(s)")
             except Exception as e:
                 logging.warning(f"Scheduler not started: {e}")
+
+    # Two-way Telegram chat, when enabled in notifications settings
+    from src.interfaces.telegram_chat import telegram_chat_enabled
+
+    if telegram_chat_enabled():
+        @api_app.on_event("startup")
+        async def _start_telegram_chat():
+            import asyncio as _asyncio
+            from src.interfaces.telegram_chat import run_telegram_chat
+            _asyncio.create_task(run_telegram_chat())
+            logging.info("Telegram chat interface starting")
 
     uvicorn.run(
         api_app,
