@@ -69,6 +69,67 @@ def message_text(message: BaseMessage) -> str:
     return str(content)
 
 
+class ThinkStreamFilter:
+    """Stateful <think>-suppressor for token-level streaming.
+
+    Regex stripping needs the whole message; this filter works on a live
+    token stream instead: feed() returns only text that is provably outside
+    a think block, holding back any suffix that could be the start of a
+    split tag (e.g. a chunk ending in "<thi").
+    """
+
+    _OPEN = re.compile(r"<think(?:ing)?>", re.IGNORECASE)
+    _CLOSE = re.compile(r"</think(?:ing)?>", re.IGNORECASE)
+    _TAGS = ("<think>", "<thinking>", "</think>", "</thinking>")
+    _MAX_TAG = max(len(t) for t in _TAGS)
+
+    def __init__(self):
+        self._buf = ""
+        self._in_think = False
+
+    def _held_suffix_len(self) -> int:
+        """Length of a buffer suffix that could be an incomplete tag."""
+        for k in range(min(len(self._buf), self._MAX_TAG - 1), 0, -1):
+            suffix = self._buf[-k:].lower()
+            if any(tag.startswith(suffix) for tag in self._TAGS):
+                return k
+        return 0
+
+    def feed(self, text: str) -> str:
+        self._buf += text
+        out = []
+        while True:
+            if self._in_think:
+                m = self._CLOSE.search(self._buf)
+                if m is None:
+                    # drop consumed thinking; keep a tail for a split closer
+                    self._buf = self._buf[-(self._MAX_TAG - 1):]
+                    break
+                self._buf = self._buf[m.end():]
+                self._in_think = False
+                continue
+            m = self._OPEN.search(self._buf)
+            if m is not None:
+                out.append(self._buf[:m.start()])
+                self._buf = self._buf[m.end():]
+                self._in_think = True
+                continue
+            hold = self._held_suffix_len()
+            cut = len(self._buf) - hold
+            out.append(self._buf[:cut])
+            self._buf = self._buf[cut:]
+            break
+        return "".join(out)
+
+    def flush(self) -> str:
+        """Return any held text at end of stream (nothing if mid-think)."""
+        if self._in_think:
+            self._buf = ""
+            return ""
+        out, self._buf = self._buf, ""
+        return out
+
+
 def clean_response(message: BaseMessage) -> str:
     """Turn the agent's final message into user-safe text.
 

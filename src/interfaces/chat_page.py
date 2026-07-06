@@ -5,6 +5,10 @@ in the browser and calls the existing OpenAI-compatible /v1/chat/completions
 with full history each turn, which is exactly how that API is designed to
 be used. If an API key is configured, the page asks once and stores it in
 localStorage.
+
+Voice: the 🎤 button dictates via the browser's Web Speech API and the 🔊
+toggle speaks replies aloud (speechSynthesis). Both are built into
+Chrome/Edge/Safari; speech recognition needs HTTPS or a localhost origin.
 """
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
@@ -55,13 +59,18 @@ _CHAT_HTML = """\
 <body>
 <header>
   <h1>🎬 Media Agent</h1>
-  <button id="reset" title="Start a fresh conversation">New chat</button>
+  <div style="display:flex;gap:8px">
+    <button id="speak" title="Speak replies aloud">🔊 off</button>
+    <button id="reset" title="Start a fresh conversation">New chat</button>
+  </div>
 </header>
 <div id="log">
   <div class="msg agent">Hi! Ask me things like “what's new?”, “add the movie Heat”, or “what should I watch next?”</div>
 </div>
 <form id="form">
   <input id="input" placeholder="Message Media Agent…" autocomplete="off" autofocus>
+  <button type="button" id="mic" title="Dictate (needs HTTPS or localhost)"
+    style="background:#161b22;border:1px solid #30363d;color:#c9d1d9;border-radius:8px;padding:0 14px;font-size:1rem;cursor:pointer">🎤</button>
   <button type="submit" id="send">Send</button>
 </form>
 <script>
@@ -83,6 +92,47 @@ _CHAT_HTML = """\
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
     return div;
+  }
+
+  // ── voice: dictation in, spoken replies out ────────────────────────
+  let speakReplies = false;
+  const speakBtn = document.getElementById("speak");
+  speakBtn.onclick = () => {
+    speakReplies = !speakReplies;
+    speakBtn.textContent = speakReplies ? "🔊 on" : "🔊 off";
+    if (!speakReplies) speechSynthesis.cancel();
+  };
+  function speak(text) {
+    if (!speakReplies || !("speechSynthesis" in window)) return;
+    speechSynthesis.cancel();
+    // strip emoji/markdown-ish noise for the voice
+    const clean = text.replace(/[✅❌⚠️⏸️🚫🆕🎬•]/g, "").replace(/\\s+/g, " ").trim();
+    if (clean) speechSynthesis.speak(new SpeechSynthesisUtterance(clean.slice(0, 800)));
+  }
+
+  const mic = document.getElementById("mic");
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) {
+    mic.disabled = true; mic.title = "Speech recognition not supported in this browser";
+    mic.style.opacity = ".4";
+  } else {
+    let listening = false, rec = null;
+    mic.onclick = () => {
+      if (listening) { rec && rec.stop(); return; }
+      rec = new Recognition();
+      rec.lang = navigator.language || "en-US";
+      rec.interimResults = true;
+      listening = true; mic.textContent = "🔴";
+      rec.onresult = (e) => {
+        input.value = Array.from(e.results).map(r => r[0].transcript).join("");
+      };
+      rec.onend = () => {
+        listening = false; mic.textContent = "🎤";
+        if (input.value.trim()) form.requestSubmit();
+      };
+      rec.onerror = () => { listening = false; mic.textContent = "🎤"; };
+      rec.start();
+    };
   }
 
   document.getElementById("reset").onclick = () => {
@@ -119,6 +169,7 @@ _CHAT_HTML = """\
       pending.classList.remove("thinking");
       pending.textContent = reply;
       history.push({role: "assistant", content: reply});
+      speak(reply);
     } catch (err) {
       pending.classList.remove("thinking");
       pending.textContent = "❌ " + err.message;

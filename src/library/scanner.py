@@ -209,6 +209,118 @@ def find_duplicates(inventory: str) -> str:
 # ── helpers ──────────────────────────────────────────────────────────────
 
 
+MEDIA_EXTENSIONS = {
+    ".mkv", ".mp4", ".avi", ".m4v", ".mov", ".wmv", ".ts",
+    ".mp3", ".flac", ".m4a", ".m4b", ".ogg", ".wav", ".aac",
+}
+
+
+def scan_duplicates(path: str, min_size_mb: int = 50) -> str:
+    """Find likely duplicate media files under *path*.
+
+    Groups files by exact size, then confirms with a fast first+last-64KB
+    hash — no full-file reads, so it's usable on multi-TB libraries.
+    Returns a report of duplicate groups and total reclaimable space.
+    """
+    root = Path(path)
+    if not root.is_dir():
+        return f"❌ Not a directory: {path}"
+
+    min_size = min_size_mb * 1024 * 1024
+    by_size: dict[int, list[Path]] = defaultdict(list)
+    scanned = 0
+    for entry in root.rglob("*"):
+        try:
+            if not entry.is_file() or entry.name.startswith("."):
+                continue
+            if entry.suffix.lower() not in MEDIA_EXTENSIONS:
+                continue
+            size = entry.stat().st_size
+            if size < min_size:
+                continue
+            scanned += 1
+            by_size[size].append(entry)
+        except OSError:
+            continue
+
+    groups: list[tuple[int, list[Path]]] = []
+    for size, candidates in by_size.items():
+        if len(candidates) < 2:
+            continue
+        by_hash: dict[str, list[Path]] = defaultdict(list)
+        for candidate in candidates:
+            try:
+                by_hash[_quick_hash(str(candidate))].append(candidate)
+            except OSError:
+                continue
+        for dupes in by_hash.values():
+            if len(dupes) >= 2:
+                groups.append((size, sorted(dupes)))
+
+    if not groups:
+        return (f"✅ No duplicates found under {path} "
+                f"({scanned} media files ≥{min_size_mb} MB checked).")
+
+    groups.sort(key=lambda g: -g[0] * (len(g[1]) - 1))
+    wasted = sum(size * (len(files) - 1) for size, files in groups)
+    lines = [
+        f"Found {len(groups)} duplicate group(s) under {path} — "
+        f"{_format_size(wasted)} reclaimable:\n",
+    ]
+    for size, files in groups[:15]:
+        lines.append(f"  {_format_size(size)} × {len(files)}:")
+        for fp in files:
+            lines.append(f"    • {fp}")
+    if len(groups) > 15:
+        lines.append(f"  ... and {len(groups) - 15} more groups")
+    return "\n".join(lines)
+
+
+def scan_orphans(path: str, known_paths: list[str]) -> str:
+    """Find media files under *path* that live outside every known
+    service-managed folder (*known_paths* from Sonarr series and Radarr
+    movie records). Orphans are candidates for cleanup or re-import."""
+    root = Path(path)
+    if not root.is_dir():
+        return f"❌ Not a directory: {path}"
+
+    normalized = [p.rstrip("/") + "/" for p in known_paths if p]
+    orphans: list[tuple[Path, int]] = []
+    total_size = 0
+    scanned = 0
+    for entry in root.rglob("*"):
+        try:
+            if not entry.is_file() or entry.name.startswith("."):
+                continue
+            if entry.suffix.lower() not in MEDIA_EXTENSIONS:
+                continue
+            scanned += 1
+            entry_str = str(entry)
+            if any(entry_str.startswith(known) for known in normalized):
+                continue
+            size = entry.stat().st_size
+            orphans.append((entry, size))
+            total_size += size
+        except OSError:
+            continue
+
+    if not orphans:
+        return (f"✅ No orphans under {path} — all {scanned} media files "
+                f"belong to a Sonarr/Radarr-managed folder.")
+
+    orphans.sort(key=lambda o: -o[1])
+    lines = [
+        f"Found {len(orphans)} orphaned media file(s) under {path} "
+        f"({_format_size(total_size)}) not managed by Sonarr/Radarr:\n",
+    ]
+    for fp, size in orphans[:25]:
+        lines.append(f"  • {fp} ({_format_size(size)})")
+    if len(orphans) > 25:
+        lines.append(f"  ... and {len(orphans) - 25} more")
+    lines.append("\nThese may be manual downloads, leftovers, or unimported files.")
+    return "\n".join(lines)
+
+
 def _format_size(size_bytes: int) -> str:
     """Human-readable file size."""
     for unit in ("B", "KB", "MB", "GB", "TB"):

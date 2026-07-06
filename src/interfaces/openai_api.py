@@ -137,19 +137,24 @@ async def chat_completions(
 async def _stream_response(messages: list[ChatMessage]):
     """Stream the agent's answer as OpenAI-compatible SSE chunks.
 
-    Intermediate model turns in the ReAct loop contain tool calls (and, for
-    thinking models, reasoning traces). Raw token streaming would forward all
-    of that to the chat client — which is exactly the "tool calls in chat"
-    bug. Instead we stream at the message level: each completed agent step
-    that produced a final (tool-call-free) answer is cleaned and emitted.
-    Tool-calling steps emit nothing.
+    Two modes (``server.token_streaming``, default true):
+
+    - **Token mode**: real typing effect via ``stream_mode="messages"``.
+      Tool-call chunks are skipped (they carry ``tool_call_chunks``, not
+      text) and a stateful ``ThinkStreamFilter`` suppresses ``<think>``
+      blocks even when tags split across chunks — so neither tool calls nor
+      reasoning traces reach the client mid-stream.
+    - **Message mode** (``token_streaming: false``): each completed,
+      tool-call-free agent message is cleaned and emitted whole — the most
+      conservative option.
     """
     from langgraph.errors import GraphRecursionError
-    from src.llm.postprocess import clean_response
+    from src.llm.postprocess import clean_response, ThinkStreamFilter, message_text
 
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
     created = int(time.time())
     agent = _get_agent()
+    token_mode = bool(get_settings().server.get("token_streaming", True))
 
     def make_chunk(content: str = "", finish_reason: str | None = None) -> str:
         payload = {
@@ -172,21 +177,54 @@ async def _stream_response(messages: list[ChatMessage]):
 
     emitted = False
     try:
-        async for update in agent.astream(
-            _graph_input(messages),
-            config={"recursion_limit": RECURSION_LIMIT},
-            stream_mode="updates",
-        ):
-            for node, payload in update.items():
-                if node not in ("model", "agent"):
-                    continue  # tool results are inputs to the model, not chat output
-                for message in (payload or {}).get("messages", []):
-                    if getattr(message, "tool_calls", None):
-                        continue  # intermediate tool-calling turn — not for the user
-                    text = clean_response(message)
-                    if text:
-                        yield make_chunk(content=text)
-                        emitted = True
+        if token_mode:
+            think_filter = ThinkStreamFilter()
+            last_text_by_msg: dict = {}
+            async for item in agent.astream(
+                _graph_input(messages),
+                config={"recursion_limit": RECURSION_LIMIT},
+                stream_mode="messages",
+            ):
+                chunk_msg, metadata = item
+                if metadata.get("langgraph_node") not in ("model", "agent"):
+                    continue  # tool-node output is model input, not chat output
+                if getattr(chunk_msg, "tool_call_chunks", None) or \
+                        getattr(chunk_msg, "tool_calls", None):
+                    continue  # part of a tool call, not an answer
+                text = message_text(chunk_msg)
+                if not text:
+                    continue
+                # guard against the known cumulative-duplicate chunk quirk:
+                # skip a chunk that just repeats everything already seen
+                key = getattr(chunk_msg, "id", None)
+                seen = last_text_by_msg.get(key, "")
+                if seen and text == seen:
+                    continue
+                last_text_by_msg[key] = seen + text
+                safe = think_filter.feed(text)
+                if safe:
+                    yield make_chunk(content=safe)
+                    emitted = True
+            tail = think_filter.flush()
+            if tail:
+                yield make_chunk(content=tail)
+                emitted = True
+        else:
+            async for update in agent.astream(
+                _graph_input(messages),
+                config={"recursion_limit": RECURSION_LIMIT},
+                stream_mode="updates",
+            ):
+                for node, payload in update.items():
+                    if node not in ("model", "agent"):
+                        continue
+                    for message in (payload or {}).get("messages", []):
+                        if getattr(message, "tool_calls", None):
+                            continue  # intermediate tool-calling turn
+                        text = clean_response(message)
+                        if text:
+                            yield make_chunk(content=text)
+                            emitted = True
     except GraphRecursionError:
         yield make_chunk(
             content="⚠️ I hit my step limit before finishing — the model appears "

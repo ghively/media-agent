@@ -107,4 +107,4 @@ def test_registry_has_no_duplicate_names_and_expected_count():
     from src.tools.registry import all_tools
     names = [t.name for t in all_tools]
     assert len(names) == len(set(names))
-    assert len(names) == 65
+    assert len(names) == 67

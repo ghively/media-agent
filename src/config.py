@@ -77,6 +77,14 @@ class Settings:
         return self._data.get("services", {}).get("download_station", {})
 
     @property
+    def lidarr(self) -> dict:
+        return self._data.get("services", {}).get("lidarr", {})
+
+    @property
+    def bazarr(self) -> dict:
+        return self._data.get("services", {}).get("bazarr", {})
+
+    @property
     def youtube(self) -> dict:
         return self._data.get("services", {}).get("youtube", {})
 

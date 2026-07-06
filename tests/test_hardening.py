@@ -92,6 +92,46 @@ def test_trim_history_bounds_message_count():
     assert trimmed[-1].content == "a99"  # newest messages kept
 
 
+def test_duplicate_scan_finds_real_duplicates(tmp_path):
+    from src.library.scanner import scan_duplicates
+    payload = b"x" * (1024 * 1024)
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    (tmp_path / "a" / "movie.mkv").write_bytes(payload)
+    (tmp_path / "b" / "movie-copy.mkv").write_bytes(payload)
+    (tmp_path / "a" / "different.mkv").write_bytes(b"y" * (1024 * 1024))
+
+    report = scan_duplicates(str(tmp_path), min_size_mb=0)
+    assert "1 duplicate group" in report
+    assert "movie.mkv" in report and "movie-copy.mkv" in report
+    assert "different.mkv" not in report
+
+
+def test_orphan_scan_respects_known_paths(tmp_path):
+    from src.library.scanner import scan_orphans
+    managed = tmp_path / "tv" / "Show"
+    managed.mkdir(parents=True)
+    (managed / "ep.mkv").write_bytes(b"x" * 1024)
+    stray = tmp_path / "downloads"
+    stray.mkdir()
+    (stray / "random.mkv").write_bytes(b"y" * 2048)
+
+    report = scan_orphans(str(tmp_path), [str(tmp_path / "tv" / "Show")])
+    assert "random.mkv" in report
+    assert "ep.mkv" not in report
+
+
+def test_optional_integrations_absent_when_unconfigured():
+    from src.tools.registry import all_tools
+    names = {t.name for t in all_tools}
+    # test settings configure neither Lidarr nor Bazarr
+    assert "search_artist" not in names
+    assert "bazarr_status" not in names
+    # the duplicate/orphan workflow is always present
+    assert "library_find_duplicates" in names
+    assert "library_find_orphans" in names
+
+
 def test_removal_tools_are_confirm_gated():
     from src.tools.registry import all_tools
     by_name = {t.name: t for t in all_tools}

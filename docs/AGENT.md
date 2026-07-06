@@ -31,7 +31,7 @@ can do, and which actions deserve human approval.
         ▼                        ▼                          ▼
   LLM routing             Tool registry              Post-processing
   (src/llm/client)        (src/tools/registry)       (src/llm/postprocess)
-  Ollama primary;         65 tools across 12         strips <think> traces
+  Ollama primary;         67+ tools across 14         strips <think> traces
   optional hosted         services (below)           and tool-call syntax
   backup middleware                                  from every reply
 ```
@@ -42,9 +42,10 @@ Key behaviors:
   checkpointer (thread `cli`), so "add the second one" resolves against the
   previous search. The OpenAI API is stateless — the chat front-end resends
   full history each request, which the graph replays.
-- **Output hygiene.** Chat streaming emits only final, tool-call-free agent
-  messages; intermediate tool-calling turns are never streamed. All
-  user-facing text additionally passes through `clean_response()`.
+- **Output hygiene.** Streaming is token-level with tool-call chunks
+  skipped and `<think>` blocks suppressed mid-stream (even across split
+  tags); completed answers additionally pass through `clean_response()`.
+  Tool calls and reasoning traces never reach the chat client.
 - **Loop safety.** Small models can get stuck re-calling tools; the graph
   stops at 25 agent↔tool round-trips and returns a readable error.
 
@@ -81,7 +82,7 @@ before adding on ambiguity, no JSON/`<think>` fragments in replies, latency.
 Keep `OLLAMA_NUM_CTX=16384` for either profile — below ~8k the tool schemas
 get truncated by Ollama and tool calling degrades sharply.
 
-## 3. Tool catalog (65 tools)
+## 3. Tool catalog (67 tools; +6 more when Lidarr/Bazarr are configured)
 
 Risk legend: 🟢 read-only · 🟡 mutating (adds/changes state, reversible) ·
 🔴 destructive or externally significant (renames files, spends
@@ -159,10 +160,23 @@ airing soon, recently added, next up) — all 🟢.
 | `youtube_get_info` / `youtube_list_subscriptions` | 🟢 | Metadata, subscription list |
 | `youtube_download` / `youtube_add_subscription` / `youtube_remove_subscription` / `youtube_check_subscriptions` | 🟡 | Download videos, manage channel monitoring |
 
+### Music — Lidarr (registered only when `services.lidarr` is configured)
+| Tool | Risk | Purpose |
+|---|---|---|
+| `search_artist` / `list_artists` / `get_music_queue` | 🟢 | Search MusicBrainz ids, monitored artists, queue |
+| `add_artist` | 🟡 | Add artist (dynamic profiles/root folder) + album search |
+
+### Subtitles — Bazarr (registered only when `services.bazarr` is configured)
+| Tool | Risk | Purpose |
+|---|---|---|
+| `bazarr_status` / `bazarr_wanted_subtitles` | 🟢 | Health + missing-subtitle lists |
+
 ### Library organization
 | Tool | Risk | Purpose |
 |---|---|---|
 | `library_inventory` / `library_check_naming` | 🟢 | Summarize and validate a directory (no changes) |
+| `library_find_duplicates` | 🟢 | Duplicate groups + reclaimable space (size + partial hash; report-only) |
+| `library_find_orphans` | 🟢 | Media files no Sonarr/Radarr folder manages (report-only) |
 | `library_sort_dir` | 🔴 | **Mass-renames files** to the naming convention (writes an undo log) |
 | `library_undo_rename` | 🟡 | Roll back a `library_sort_dir` run from its undo log |
 
@@ -302,9 +316,11 @@ check, and internetarchive 5.x (`fields=` on search, `silent=` removed).
 - The `InjectedState` approval gate is unchanged and verified working under
   `create_agent`'s tool node — still the right pattern for our mix of
   stateful (CLI/Telegram) and stateless (OpenAI API) interfaces.
-- Message-level streaming (`stream_mode="updates"`) remains a deliberate
-  correctness choice over token-level `stream_mode="messages"`, which would
-  re-open think-tag leakage for thinking models mid-stream.
+- Streaming is token-level by default (`server.token_streaming: true`):
+  `stream_mode="messages"` with tool-call chunks skipped and a stateful
+  `ThinkStreamFilter` that suppresses `<think>` blocks even when a tag is
+  split across chunks (tested at every split position). Set
+  `token_streaming: false` for the most conservative whole-message mode.
 
 ## 7. Talking to the agent
 
@@ -312,7 +328,7 @@ Four ways in, all sharing the same graph, tools, and approval gate:
 
 | Interface | Where | Memory |
 |---|---|---|
-| Browser chat | `http://<host>:8088/chat` | per-tab (history resent) |
+| Browser chat (+🎤 voice) | `http://<host>:8088/chat` | per-tab (history resent) |
 | Telegram | your bot DM (set `notifications.telegram_chat: true`) | persistent per chat; `/new` resets |
 | CLI | `python -m src.main --interactive` | persistent; `new` resets |
 | OpenAI-compatible API | `/v1/chat/completions` (Open WebUI etc.) | client-managed |
@@ -320,15 +336,21 @@ Four ways in, all sharing the same graph, tools, and approval gate:
 Conversational patterns the agent maps to tools: "what's new?" →
 `daily_briefing`; "what were we watching?" → `emby_continue_watching`;
 "what should I watch next?" → `emby_next_up`; "what's on tonight?" →
-`get_tv_calendar`; small talk needs no tools at all.
+`get_tv_calendar`; "what's wasting space?" → `library_find_duplicates` +
+`library_find_orphans`; small talk needs no tools at all.
 
-## 8. Remaining roadmap
+The browser chat page has voice built in: 🎤 dictates via the Web Speech
+API (needs HTTPS or a localhost origin) and 🔊 speaks replies aloud.
 
-- *Duplicate/orphan workflow* — wire `scanner.cross_reference` /
-  `find_orphans` into tools so "what's wasting space?" works end-to-end.
-- *Subtitles (Bazarr) and music (Lidarr/beets)* — same client+tools pattern
-  as Sonarr/Radarr when those services join the stack.
-- *Token-level streaming for Profile A* — typing effect for non-thinking
-  models via `stream_mode="messages"` with tool-call-chunk filtering.
-- *Voice* — a Wyoming/HA-Assist or Whisper front-end feeding the same
-  OpenAI-compatible endpoint.
+## 8. Roadmap status
+
+Every item from the original roadmap is now implemented: leak-free chat,
+approval gate, persistent memory, config doctor, notifications + scheduler
+jobs, disk preflight, audit log, CI, model eval harness, quality-profile
+selection, removal tools, weekly digest, duplicate/orphan workflow,
+Lidarr + Bazarr integrations (config-gated), token-level streaming with
+think-safe filtering, and voice on the chat page.
+
+Possible future directions (nothing pending): richer voice (Whisper/Wyoming
+server-side instead of browser speech), per-thread server-side memory for
+the OpenAI API, and beets-based music tagging.

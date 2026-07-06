@@ -6,7 +6,8 @@ A standalone, containerized agent for managing a personal media ecosystem.
 
 All service integrations are first-class: Sonarr, Radarr, Emby, SABnzbd,
 Synology Download Station, unified search, Bandcamp, Audible, ROMs
-(Internet Archive), YouTube (yt-dlp), and library organization — 65 tools
+(Internet Archive), YouTube (yt-dlp), and library organization, duplicate/orphan
+analysis, plus Lidarr (music) and Bazarr (subtitles) when configured — 67+ tools
 total, with a config-driven approval gate on high-impact actions and a
 pytest suite covering the agent's chat behavior end-to-end (no live
 services needed):
@@ -39,7 +40,7 @@ agent from your phone — same brain, same approval gate, every interface.
 
 ## Documentation
 
-- **[docs/AGENT.md](docs/AGENT.md)** — agent architecture, the full 65-tool
+- **[docs/AGENT.md](docs/AGENT.md)** — agent architecture, the full 67-tool
   catalog with risk ratings, built-in workflows, model profiles (thinking vs
   non-thinking), the approval system, and the bulletproofing roadmap.
 - [SPEC.md](SPEC.md) — original design specification.

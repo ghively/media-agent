@@ -48,9 +48,36 @@ from src.providers.youtube import (
 )
 from src.library.tools import (
     library_check_naming, library_sort_dir, library_undo_rename, library_inventory,
+    library_find_duplicates, library_find_orphans,
 )
 from src.tools.approval import apply_approval_policies
 from src.audit import apply_audit
+
+
+def _service_configured(name: str) -> bool:
+    """True when a service section has url + api_key filled in. Optional
+    integrations (Lidarr, Bazarr) register their tools only when their
+    service is actually configured — otherwise they'd just be noise in the
+    model's tool list."""
+    try:
+        from src.config import get_settings
+        cfg = getattr(get_settings(), name)
+        return bool(cfg.get("url") and cfg.get("api_key"))
+    except Exception:
+        return False
+
+
+_lidarr_tools = []
+if _service_configured("lidarr"):
+    from src.tools.lidarr import (
+        search_artist, add_artist, list_artists, get_music_queue,
+    )
+    _lidarr_tools = [search_artist, add_artist, list_artists, get_music_queue]
+
+_bazarr_tools = []
+if _service_configured("bazarr"):
+    from src.tools.bazarr import bazarr_status, bazarr_wanted_subtitles
+    _bazarr_tools = [bazarr_status, bazarr_wanted_subtitles]
 
 _raw_tools = [
     # TV / Sonarr
@@ -88,7 +115,8 @@ _raw_tools = [
     youtube_remove_subscription, youtube_get_info,
     # Library organization
     library_check_naming, library_sort_dir, library_undo_rename, library_inventory,
-]
+    library_find_duplicates, library_find_orphans,
+] + _lidarr_tools + _bazarr_tools
 
 # All tools for the LangGraph agent. Approval gate innermost, audit
 # outermost — so approval-blocked calls are audited too, and every tool's

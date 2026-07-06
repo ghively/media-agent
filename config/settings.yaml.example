@@ -8,6 +8,10 @@ server:
   # Persistent state: conversation memory, pending approvals, audit log,
   # download-sync bookkeeping. /state is the docker-compose volume.
   state_dir: "${STATE_DIR:-/state}"
+  # Streaming granularity for /v1/chat/completions: true = token-by-token
+  # typing effect (tool calls + think traces are filtered mid-stream);
+  # false = one chunk per completed answer (most conservative).
+  token_streaming: true
 
 # LLM settings are driven by .env (see .env.example for the two supported
 # model profiles) with safe defaults baked in — ${VAR:-default} falls back
@@ -64,6 +68,14 @@ services:
     url: "${DOWNLOAD_STATION_URL:-http://192.168.0.133:5000}"
     username: "${DOWNLOAD_STATION_USER:-}"
     password: "${DOWNLOAD_STATION_PASSWORD:-}"
+  # Optional integrations — their tools register only when url + api_key
+  # are filled in (otherwise they'd be dead weight in the model's tool list)
+  lidarr:
+    url: "${LIDARR_URL:-}"
+    api_key: "${LIDARR_API_KEY:-}"
+  bazarr:
+    url: "${BAZARR_URL:-}"
+    api_key: "${BAZARR_API_KEY:-}"
   youtube:
     download_path: "${YOUTUBE_DOWNLOAD_PATH:-/media/youtube}"
     subscriptions_file: "${YOUTUBE_SUBSCRIPTIONS_FILE:-/state/youtube_subscriptions.json}"

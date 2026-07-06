@@ -58,6 +58,53 @@ async def library_undo_rename(undo_log_path: str) -> str:
 
 
 @tool
+async def library_find_duplicates(path: str, min_size_mb: int = 50) -> str:
+    """Find duplicate media files under a directory and report reclaimable
+    space ("what's wasting space?"). Uses size + fast partial hashing, so it
+    is safe on large libraries. Reports only — deletes nothing.
+
+    Args:
+        path: Directory to scan (e.g. /media or /media/movies).
+        min_size_mb: Ignore files smaller than this (default 50 MB).
+    """
+    try:
+        return await asyncio.to_thread(scanner.scan_duplicates, path, min_size_mb)
+    except Exception as e:
+        return f"❌ Duplicate scan failed: {type(e).__name__}: {e}"
+
+
+@tool
+async def library_find_orphans(path: str) -> str:
+    """Find media files under a directory that no service manages — not in
+    any Sonarr series folder or Radarr movie folder. Orphans are manual
+    downloads, leftovers, or unimported files. Reports only — deletes nothing.
+
+    Args:
+        path: Directory to scan (e.g. /media).
+    """
+    try:
+        known: list[str] = []
+        try:
+            from src.tools.sonarr import _client as _sonarr
+            series = await _sonarr()._get("/series")
+            known.extend(s.get("path", "") for s in series)
+        except Exception:
+            pass
+        try:
+            from src.tools.radarr import _client as _radarr
+            movies = await _radarr()._get("/movie")
+            known.extend(m.get("path", "") for m in movies)
+        except Exception:
+            pass
+        if not known:
+            return ("❌ Could not fetch managed paths from Sonarr or Radarr — "
+                    "orphan detection needs at least one of them reachable.")
+        return await asyncio.to_thread(scanner.scan_orphans, path, known)
+    except Exception as e:
+        return f"❌ Orphan scan failed: {type(e).__name__}: {e}"
+
+
+@tool
 async def library_inventory(path: str) -> str:
     """Summarize a media directory: file count, total size, and a breakdown
     by file type.

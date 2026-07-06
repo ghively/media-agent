@@ -123,6 +123,39 @@ async def _check_download_station():
     return False, f"API error: {data}"
 
 
+async def _check_lidarr():
+    from src.config import get_settings
+    cfg = get_settings().lidarr
+    if not cfg.get("url") or not cfg.get("api_key"):
+        return True, "not configured (optional)"
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            f"{cfg['url'].rstrip('/')}/api/v1/system/status",
+            headers={"X-Api-Key": cfg["api_key"]},
+        )
+        if resp.status_code == 401:
+            return False, "reachable but API key rejected (401)"
+        resp.raise_for_status()
+        version = resp.json().get("version", "?")
+    return True, f"up (v{version})"
+
+
+async def _check_bazarr():
+    from src.config import get_settings
+    cfg = get_settings().bazarr
+    if not cfg.get("url") or not cfg.get("api_key"):
+        return True, "not configured (optional)"
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            f"{cfg['url'].rstrip('/')}/api/system/status",
+            headers={"X-API-KEY": cfg["api_key"]},
+        )
+        if resp.status_code == 401:
+            return False, "reachable but API key rejected (401)"
+        resp.raise_for_status()
+    return True, "up"
+
+
 async def _check_fallback_llm():
     from src.config import get_settings
     llm = get_settings().llm
@@ -159,6 +192,8 @@ async def run_doctor() -> bool:
         ("Emby", _check_emby()),
         ("SABnzbd", _check_sabnzbd()),
         ("Download Station", _check_download_station()),
+        ("Lidarr", _check_lidarr()),
+        ("Bazarr", _check_bazarr()),
         ("Fallback LLM", _check_fallback_llm()),
         ("Telegram", _check_telegram()),
     ]
