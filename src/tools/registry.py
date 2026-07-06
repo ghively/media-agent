@@ -10,10 +10,12 @@ according to the ``approvals:`` policy in settings.yaml.
 from src.tools.sonarr import (
     search_tv, add_tv_show, list_tv_shows, get_tv_queue,
     get_tv_history, search_missing_episodes, get_tv_calendar, get_tv_health,
+    list_tv_profiles, remove_tv_show,
 )
 from src.tools.radarr import (
     search_movie, add_movie, list_movies, get_movie_queue,
     get_movie_history, search_missing_movies, get_movie_health,
+    list_movie_profiles, remove_movie,
 )
 from src.tools.emby import (
     emby_search, emby_recent, emby_libraries, emby_scan, emby_get_item,
@@ -46,14 +48,17 @@ from src.library.tools import (
     library_check_naming, library_sort_dir, library_undo_rename, library_inventory,
 )
 from src.tools.approval import apply_approval_policies
+from src.audit import apply_audit
 
 _raw_tools = [
     # TV / Sonarr
     search_tv, add_tv_show, list_tv_shows, get_tv_queue,
     get_tv_history, search_missing_episodes, get_tv_calendar, get_tv_health,
+    list_tv_profiles, remove_tv_show,
     # Movies / Radarr
     search_movie, add_movie, list_movies, get_movie_queue,
     get_movie_history, search_missing_movies, get_movie_health,
+    list_movie_profiles, remove_movie,
     # Library / Emby
     emby_search, emby_recent, emby_libraries, emby_scan, emby_get_item,
     # Health
@@ -82,5 +87,7 @@ _raw_tools = [
     library_check_naming, library_sort_dir, library_undo_rename, library_inventory,
 ]
 
-# All tools for the LangGraph agent, with approval policies applied
-all_tools = apply_approval_policies(_raw_tools)
+# All tools for the LangGraph agent. Approval gate innermost, audit
+# outermost — so approval-blocked calls are audited too, and every tool's
+# output is length-capped before it reaches the model.
+all_tools = apply_audit(apply_approval_policies(_raw_tools))

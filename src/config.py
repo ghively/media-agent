@@ -89,6 +89,24 @@ class Settings:
         return self._data.get("scheduler", {})
 
 
+def get_state_dir() -> Path:
+    """Directory for persistent agent state (conversation checkpoints,
+    pending approvals, audit log). Defaults to /state (the docker-compose
+    volume); falls back to ./state for local development."""
+    configured = os.environ.get("STATE_DIR") or \
+        get_settings().server.get("state_dir", "/state")
+    for candidate in (Path(configured), Path("./state")):
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            probe = candidate / ".write_probe"
+            probe.touch()
+            probe.unlink()
+            return candidate
+        except OSError:
+            continue
+    raise OSError(f"No writable state directory (tried {configured} and ./state)")
+
+
 # Singleton - loaded on first import
 _settings: Settings | None = None
 

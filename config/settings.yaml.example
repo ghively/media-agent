@@ -5,6 +5,9 @@ server:
   host: "0.0.0.0"
   port: 8088
   api_key: "${MEDIA_AGENT_API_KEY}"
+  # Persistent state: conversation memory, pending approvals, audit log,
+  # download-sync bookkeeping. /state is the docker-compose volume.
+  state_dir: "${STATE_DIR:-/state}"
 
 # LLM settings are driven by .env (see .env.example for the two supported
 # model profiles) with safe defaults baked in — ${VAR:-default} falls back
@@ -43,12 +46,17 @@ services:
   sonarr:
     url: "${SONARR_URL:-http://192.168.0.133:8989}"
     api_key: "${SONARR_API_KEY}"
+    # Optional: quality profile NAME to use for adds (default: first profile)
+    quality_profile: ""
   radarr:
     url: "${RADARR_URL:-http://192.168.0.133:8310}"
     api_key: "${RADARR_API_KEY}"
+    quality_profile: ""
   emby:
     url: "${EMBY_URL:-http://192.168.0.144:8096}"
     api_key: "${EMBY_API_KEY}"
+    # Optional: user id for user-scoped queries (default: first server user)
+    user_id: ""
   sabnzbd:
     url: "${SABNZBD_URL:-http://192.168.0.133:8080}"
     api_key: "${SABNZBD_API_KEY}"
@@ -71,12 +79,29 @@ approvals: {}
 #  emby_scan: confirm          # gate additional tools if you like
 #  download_station_add: deny  # disable a tool entirely
 
+# One-way push notifications (health alerts, weekly digest).
+# Create a bot with @BotFather, message it once, then get your chat id from
+# https://api.telegram.org/bot<TOKEN>/getUpdates
+notifications:
+  telegram_bot_token: "${TELEGRAM_BOT_TOKEN:-}"
+  telegram_chat_id: "${TELEGRAM_CHAT_ID:-}"
+
 scheduler:
   enabled: false
+  # Available jobs: health (every 30 min, alerts on state change),
+  # missing (search wanted episodes/movies), digest (weekly summary).
+  # Triggers: health_check | missing_episodes | daily_cleanup | weekly_scan
+  # or a 5-field cron expression.
   jobs: []
+  # jobs:
+  #   - {name: health, trigger: health_check}
+  #   - {name: missing, trigger: missing_episodes}
+  #   - {name: digest, trigger: weekly_scan}
 
 library:
   media_root: "/media"
+  # Bulk downloads refuse to start when free space would drop below this
+  min_free_gb: 10
   naming_conventions:
     movies: "/movies/{title} ({year})/{title} ({year}).{ext}"
     tv: "/tv/{show}/Season {season:02d}/{show} - s{season:02d}e{episode:02d} - {title}.{ext}"

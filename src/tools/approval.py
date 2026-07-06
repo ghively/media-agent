@@ -36,6 +36,8 @@ HIGH_IMPACT_DEFAULTS = {
     "audible_download_new": "confirm",
     "sabnzbd_add_nzb": "confirm",
     "download_station_add": "confirm",
+    "remove_tv_show": "confirm",
+    "remove_movie": "confirm",
 }
 
 VALID_POLICIES = ("auto", "confirm", "deny")
@@ -52,11 +54,37 @@ _DENY_RE = re.compile(
 )
 
 # Pending approval requests: fingerprint -> unix timestamp of the request.
-# Process-local, which matches how Media Agent runs (single process serving
-# one household).
+# Held in memory (single process serving one household) and mirrored to the
+# state directory so a container restart doesn't drop an approval mid-flow.
 _PENDING: dict[str, float] = {}
 _PENDING_TTL_SECONDS = 15 * 60
 _PENDING_MAX = 50
+_PENDING_LOADED = False
+
+
+def _pending_file():
+    from src.config import get_state_dir
+    return get_state_dir() / "pending_approvals.json"
+
+
+def _load_pending() -> None:
+    global _PENDING_LOADED
+    if _PENDING_LOADED:
+        return
+    _PENDING_LOADED = True
+    try:
+        data = json.loads(_pending_file().read_text())
+        if isinstance(data, dict):
+            _PENDING.update({str(k): float(v) for k, v in data.items()})
+    except (OSError, ValueError):
+        pass
+
+
+def _save_pending() -> None:
+    try:
+        _pending_file().write_text(json.dumps(_PENDING))
+    except OSError:
+        pass
 
 
 def get_policies() -> dict[str, str]:
@@ -126,6 +154,7 @@ def gate_tool(original: BaseTool, policy: str) -> BaseTool:
     else:  # confirm
         async def confirm_wrapper(**kwargs):
             state = kwargs.pop("state", None)
+            _load_pending()
             _prune_pending()
             fp = _fingerprint(original.name, kwargs)
             user_text = _last_user_message(state)
@@ -134,14 +163,17 @@ def gate_tool(original: BaseTool, policy: str) -> BaseTool:
 
             if fp in _PENDING and approved:
                 del _PENDING[fp]
+                _save_pending()
                 return await original.ainvoke(kwargs)
             if fp in _PENDING and denied:
                 del _PENDING[fp]
+                _save_pending()
                 return (
                     f"🚫 The user declined '{original.name}'. Do not retry; "
                     f"acknowledge and ask what they'd like instead."
                 )
             _PENDING[fp] = time.time()
+            _save_pending()
             return (
                 f"⏸️ APPROVAL REQUIRED — '{original.name}' was NOT executed.\n"
                 f"Requested action: {original.name}({_format_args(kwargs)})\n"

@@ -30,6 +30,7 @@ def test_settings(tmp_path_factory):
     path = tmp_path_factory.mktemp("config") / "settings.yaml"
     path.write_text(_TEST_SETTINGS)
     os.environ["MEDIA_AGENT_CONFIG"] = str(path)
+    os.environ["STATE_DIR"] = str(tmp_path_factory.mktemp("state"))
     import src.config
     src.config._settings = None
     yield path
@@ -40,6 +41,7 @@ def test_settings(tmp_path_factory):
 def clear_pending_approvals():
     from src.tools import approval
     approval._PENDING.clear()
+    approval._PENDING_LOADED = True  # skip disk load; tests control state
     yield
     approval._PENDING.clear()
 

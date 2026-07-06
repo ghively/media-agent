@@ -5,6 +5,11 @@ from langchain_core.tools import tool
 from src.config import get_settings
 
 
+def _transport() -> httpx.AsyncHTTPTransport:
+    """Shared transport with connect retries — home-lab services restart often."""
+    return httpx.AsyncHTTPTransport(retries=2)
+
+
 class EmbyClient:
     """Async client for Emby API."""
 
@@ -14,7 +19,7 @@ class EmbyClient:
         self.timeout = timeout
 
     async def _get(self, path: str, params: dict | None = None):
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, transport=_transport()) as client:
             resp = await client.get(
                 f"{self.base_url}{path}", headers=self.headers, params=params
             )
@@ -22,7 +27,7 @@ class EmbyClient:
             return resp.json()
 
     async def _post(self, path: str, json_data: dict | None = None):
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, transport=_transport()) as client:
             resp = await client.post(
                 f"{self.base_url}{path}", headers=self.headers, json=json_data
             )
@@ -33,6 +38,30 @@ class EmbyClient:
 def _client() -> EmbyClient:
     s = get_settings().emby
     return EmbyClient(s["url"], s["api_key"])
+
+
+_cached_user_id: str | None = None
+
+
+async def _user_id() -> str:
+    """Resolve a user id for user-scoped endpoints (/Users/{id}/Items/...).
+
+    Emby has no user-less /Items/Latest or /Items/{id} route, so these calls
+    must be made in a user's context. Uses ``services.emby.user_id`` from
+    settings when set; otherwise picks the first user reported by the server
+    and caches it for the process lifetime.
+    """
+    global _cached_user_id
+    configured = get_settings().emby.get("user_id", "")
+    if configured:
+        return configured
+    if _cached_user_id:
+        return _cached_user_id
+    users = await _client()._get("/emby/Users")
+    if not users:
+        raise RuntimeError("Emby reported no users; set services.emby.user_id")
+    _cached_user_id = users[0].get("Id", "")
+    return _cached_user_id
 
 
 @tool
@@ -64,7 +93,10 @@ async def emby_search(query: str) -> str:
 async def emby_recent(limit: int = 20) -> str:
     """Show recently added items in Emby."""
     try:
-        result = await _client()._get("/emby/Items/Latest", params={"Limit": str(limit)})
+        user_id = await _user_id()
+        result = await _client()._get(
+            f"/emby/Users/{user_id}/Items/Latest", params={"Limit": str(limit)}
+        )
         if not result:
             return "No recently added items."
         if isinstance(result, dict):
@@ -120,7 +152,8 @@ async def emby_scan() -> str:
 async def emby_get_item(item_id: str) -> str:
     """Get details of a specific Emby media item by ID."""
     try:
-        item = await _client()._get(f"/emby/Items/{item_id}")
+        user_id = await _user_id()
+        item = await _client()._get(f"/emby/Users/{user_id}/Items/{item_id}")
         name = item.get("Name", "Unknown")
         itype = item.get("Type", "")
         year = item.get("ProductionYear", "")

@@ -13,3 +13,4 @@ rich>=13.0.0
 sse-starlette>=2.0.0
 PyYAML>=6.0
 apscheduler>=3.10,<4
+langgraph-checkpoint-sqlite>=2.0

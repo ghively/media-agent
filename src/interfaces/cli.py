@@ -57,39 +57,80 @@ async def _run_turn(agent, console: Console, user_input: str, config: dict) -> N
 
 
 async def cli_repl():
-    """Interactive REPL for the media agent."""
+    """Interactive REPL for the media agent.
+
+    Conversation state persists across restarts in a SQLite checkpointer
+    under the state directory. Each REPL turn sends only the new user
+    message; the graph replays prior turns from the checkpoint, so
+    follow-ups like "add the second one" work — even after a restart.
+    Type 'new' to start a fresh conversation thread.
+    """
+    import uuid
+
     console = Console()
     console.print("[bold green]Media Agent[/] — Interactive Mode")
-    console.print("Type 'exit' or 'quit' to leave.\n")
+    console.print("Type 'exit' or 'quit' to leave, 'new' for a fresh conversation.\n")
 
-    from langgraph.checkpoint.memory import InMemorySaver
     from src.graphs.conversational import create_agent
 
-    # In-memory checkpointer: each REPL turn sends only the new user message,
-    # and the graph replays prior turns from the checkpoint, so follow-ups
-    # like "add the second one" work.
-    agent = create_agent(checkpointer=InMemorySaver())
-    config = {
-        "configurable": {"thread_id": "cli"},
-        "recursion_limit": RECURSION_LIMIT,
-    }
+    try:
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+        from src.config import get_state_dir
+        db_path = get_state_dir() / "checkpoints.db"
+        checkpointer_cm = AsyncSqliteSaver.from_conn_string(str(db_path))
+    except Exception as e:
+        console.print(f"[dim]Persistent memory unavailable ({e}); using in-memory.[/]")
+        from contextlib import asynccontextmanager
+        from langgraph.checkpoint.memory import InMemorySaver
 
-    while True:
-        try:
-            user_input = console.input("[bold cyan]you>[/] ")
-            if user_input.strip().lower() in ("exit", "quit"):
-                console.print("[dim]Goodbye![/]")
+        @asynccontextmanager
+        async def _mem():
+            yield InMemorySaver()
+        checkpointer_cm = _mem()
+
+    # Remember the active thread across restarts so 'new' sticks
+    thread_file = None
+    thread_id = "cli"
+    try:
+        from src.config import get_state_dir
+        thread_file = get_state_dir() / "cli_thread.txt"
+        if thread_file.exists():
+            thread_id = thread_file.read_text().strip() or "cli"
+    except Exception:
+        pass
+
+    async with checkpointer_cm as checkpointer:
+        if hasattr(checkpointer, "setup"):
+            await checkpointer.setup()  # create tables; not automatic
+        agent = create_agent(checkpointer=checkpointer)
+        config = {
+            "configurable": {"thread_id": thread_id},
+            "recursion_limit": RECURSION_LIMIT,
+        }
+
+        while True:
+            try:
+                user_input = console.input("[bold cyan]you>[/] ")
+                command = user_input.strip().lower()
+                if command in ("exit", "quit"):
+                    console.print("[dim]Goodbye![/]")
+                    break
+                if command == "new":
+                    config["configurable"]["thread_id"] = f"cli-{uuid.uuid4().hex[:8]}"
+                    if thread_file is not None:
+                        thread_file.write_text(config["configurable"]["thread_id"])
+                    console.print("[dim]Started a fresh conversation.[/]")
+                    continue
+                if not user_input.strip():
+                    continue
+
+                await _run_turn(agent, console, user_input, config)
+
+            except KeyboardInterrupt:
+                console.print("\n[dim]Goodbye![/]")
                 break
-            if not user_input.strip():
-                continue
-
-            await _run_turn(agent, console, user_input, config)
-
-        except KeyboardInterrupt:
-            console.print("\n[dim]Goodbye![/]")
-            break
-        except Exception as e:
-            console.print(f"[red]Error: {type(e).__name__}: {e}[/]")
+            except Exception as e:
+                console.print(f"[red]Error: {type(e).__name__}: {e}[/]")
 
 
 async def cli_one_shot(query: str):

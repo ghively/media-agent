@@ -5,6 +5,11 @@ from langchain_core.tools import tool
 from src.config import get_settings
 
 
+def _transport() -> httpx.AsyncHTTPTransport:
+    """Shared transport with connect retries — home-lab services restart often."""
+    return httpx.AsyncHTTPTransport(retries=2)
+
+
 class RadarrClient:
     """Async client for Radarr v3 API."""
 
@@ -14,7 +19,7 @@ class RadarrClient:
         self.timeout = timeout
 
     async def _get(self, endpoint: str, params: dict | None = None):
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, transport=_transport()) as client:
             resp = await client.get(
                 f"{self.base_url}/api/v3{endpoint}", headers=self.headers, params=params
             )
@@ -22,7 +27,7 @@ class RadarrClient:
             return resp.json()
 
     async def _post(self, endpoint: str, json_data: dict):
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, transport=_transport()) as client:
             resp = await client.post(
                 f"{self.base_url}/api/v3{endpoint}", headers=self.headers, json=json_data
             )
@@ -33,6 +38,39 @@ class RadarrClient:
 def _client() -> RadarrClient:
     s = get_settings().radarr
     return RadarrClient(s["url"], s["api_key"])
+
+
+async def _resolve_defaults(client: RadarrClient,
+                            quality_profile: str = "",
+                            root_folder: str = "") -> tuple[int, str]:
+    """Resolve quality profile id and root folder path against the live
+    instance. Radarr validates both on POST /movie — hardcoded values 400
+    on any install whose profiles/folders differ."""
+    profiles = await client._get("/qualityprofile")
+    if quality_profile:
+        matched = [p for p in profiles
+                   if p.get("name", "").lower() == quality_profile.lower()]
+        if not matched:
+            names = ", ".join(p.get("name", "?") for p in profiles)
+            raise ValueError(f"No quality profile named '{quality_profile}'. Available: {names}")
+        profile_id = matched[0]["id"]
+    else:
+        cfg = get_settings().radarr.get("quality_profile", "")
+        matched = [p for p in profiles if p.get("name", "").lower() == str(cfg).lower()]
+        profile_id = (matched[0] if matched else profiles[0])["id"]
+
+    folders = await client._get("/rootfolder")
+    if not folders:
+        raise ValueError("Radarr has no root folders configured.")
+    if root_folder:
+        matched = [f for f in folders if f.get("path", "").rstrip("/") == root_folder.rstrip("/")]
+        if not matched:
+            paths = ", ".join(f.get("path", "?") for f in folders)
+            raise ValueError(f"No root folder '{root_folder}'. Available: {paths}")
+        folder_path = matched[0]["path"]
+    else:
+        folder_path = folders[0]["path"]
+    return profile_id, folder_path
 
 
 @tool
@@ -58,27 +96,104 @@ async def search_movie(query: str) -> str:
 
 
 @tool
-async def add_movie(tmdb_id: int, title: str) -> str:
-    """Add a movie to the monitored library by its TMDb ID."""
+async def add_movie(tmdb_id: int, title: str,
+                    quality_profile: str = "", root_folder: str = "") -> str:
+    """Add a movie to the monitored library by its TMDb ID.
+
+    Args:
+        tmdb_id: TMDb id from search_movie results.
+        title: Movie title.
+        quality_profile: Optional quality profile NAME (see list_movie_profiles).
+            Defaults to the configured/first profile.
+        root_folder: Optional root folder path. Defaults to the first one.
+    """
     try:
+        client = _client()
+        profile_id, folder_path = await _resolve_defaults(
+            client, quality_profile, root_folder)
         body = {
             "tmdbId": tmdb_id,
             "title": title,
-            "qualityProfileId": 1,
-            "rootFolderPath": "/movies/",
+            "qualityProfileId": profile_id,
+            "rootFolderPath": folder_path,
             "monitored": True,
+            # default enum is 'tba' (most restrictive); 'announced' lets
+            # Radarr start grabbing as soon as a release exists
+            "minimumAvailability": "announced",
             "addOptions": {"searchForMovie": True},
         }
-        await _client()._post("/movie", body)
-        return f"✅ Added '{title}' (tmdbId: {tmdb_id}) to the library. Searching..."
+        await client._post("/movie", body)
+        return f"✅ Added '{title}' (tmdbId: {tmdb_id}) to {folder_path}. Searching..."
+    except ValueError as e:
+        return f"❌ {e}"
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 400:
-            return f"❌ '{title}' may already be in your library, or the tmdbId is invalid."
+            return (f"❌ Radarr rejected the add (HTTP 400): "
+                    f"{e.response.text[:300]}")
         return f"❌ Radarr returned HTTP {e.response.status_code}: {e.response.text[:200]}"
     except httpx.ConnectError:
         return "❌ Cannot connect to Radarr."
     except Exception as e:
         return f"❌ Failed to add movie: {type(e).__name__}: {e}"
+
+
+@tool
+async def list_movie_profiles() -> str:
+    """List Radarr quality profiles and root folders (for use with add_movie)."""
+    try:
+        client = _client()
+        profiles = await client._get("/qualityprofile")
+        folders = await client._get("/rootfolder")
+        lines = ["Quality profiles:"]
+        for p in profiles:
+            lines.append(f"  • {p.get('name', '?')} (id {p.get('id', '?')})")
+        lines.append("Root folders:")
+        for f in folders:
+            free = f.get("freeSpace", 0) / (1024 ** 3)
+            lines.append(f"  • {f.get('path', '?')} ({free:.0f} GB free)")
+        return "\n".join(lines)
+    except httpx.ConnectError:
+        return "❌ Cannot connect to Radarr."
+    except Exception as e:
+        return f"❌ Failed to list profiles: {type(e).__name__}: {e}"
+
+
+@tool
+async def remove_movie(title: str, delete_files: bool = False) -> str:
+    """Remove a movie from Radarr by its title.
+
+    Args:
+        title: Exact or unambiguous partial title of a monitored movie.
+        delete_files: Also delete the movie file from disk (default False —
+            only stops monitoring).
+    """
+    try:
+        client = _client()
+        movies = await client._get("/movie")
+        matches = [m for m in movies
+                   if title.lower() in m.get("title", "").lower()]
+        exact = [m for m in matches if m.get("title", "").lower() == title.lower()]
+        if exact:
+            matches = exact
+        if not matches:
+            return f"❌ No monitored movie matches '{title}'."
+        if len(matches) > 1:
+            names = "\n".join(f"  • {m['title']} ({m.get('year', '?')})" for m in matches[:10])
+            return f"⚠️ Multiple movies match '{title}' — be more specific:\n{names}"
+        movie = matches[0]
+        async with httpx.AsyncClient(timeout=30, transport=_transport()) as http:
+            resp = await http.delete(
+                f"{client.base_url}/api/v3/movie/{movie['id']}",
+                headers=client.headers,
+                params={"deleteFiles": str(bool(delete_files)).lower()},
+            )
+            resp.raise_for_status()
+        files_note = " and deleted its files" if delete_files else " (files kept on disk)"
+        return f"✅ Removed '{movie['title']}' from Radarr{files_note}."
+    except httpx.ConnectError:
+        return "❌ Cannot connect to Radarr."
+    except Exception as e:
+        return f"❌ Failed to remove movie: {type(e).__name__}: {e}"
 
 
 @tool
@@ -127,7 +242,9 @@ async def get_movie_queue() -> str:
 async def get_movie_history() -> str:
     """Show recent Radarr activity."""
     try:
-        result = await _client()._get("/history", params={"pageSize": 15})
+        # includeMovie embeds the movie object (absent by default)
+        result = await _client()._get(
+            "/history", params={"pageSize": 15, "includeMovie": "true"})
         records = result.get("records", []) if isinstance(result, dict) else []
         if not records:
             return "No recent Radarr activity."

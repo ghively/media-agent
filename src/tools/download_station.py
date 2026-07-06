@@ -46,20 +46,38 @@ class DownloadStationClient:
         self._sid: str | None = None
 
     async def _login(self, client: httpx.AsyncClient) -> bool:
-        """Authenticate with V6 SID login. Returns True on success."""
+        """Authenticate with V6 SID login. Returns True on success.
+
+        Credentials go through httpx params (percent-encoded) — interpolating
+        them into the URL breaks logins for any password containing
+        & # + % or spaces.
+        """
         if not self.username or not self.password:
             return False
-        login_url = (
-            f"{self.base_url}{DS_API_BASE}/auth.cgi"
-            f"?api=SYNO.API.Auth&version=6&method=login"
-            f"&account={self.username}&passwd={self.password}"
-            f"&session=DownloadStation&format=cookie"
+        resp = await client.get(
+            f"{self.base_url}{DS_API_BASE}/auth.cgi",
+            params={
+                "api": "SYNO.API.Auth",
+                "version": 6,
+                "method": "login",
+                "account": self.username,
+                "passwd": self.password,
+                "session": "DownloadStation",
+                "format": "cookie",
+            },
         )
-        resp = await client.get(login_url)
         data = resp.json()
         if data.get("success"):
             self._sid = data.get("data", {}).get("sid")
             return True
+        # 403/404/406 error codes = DSM 2FA in the way — surface that clearly
+        code = (data.get("error") or {}).get("code")
+        if code in (403, 404, 406):
+            raise RuntimeError(
+                "DSM account requires 2-factor authentication, which this "
+                "integration does not support. Use a dedicated DSM account "
+                "without 2FA (restricted to Download Station) instead."
+            )
         return False
 
     async def _ensure_auth(self, client: httpx.AsyncClient) -> bool:

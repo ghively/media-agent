@@ -9,12 +9,18 @@ def main():
     parser.add_argument("--interactive", "-i", action="store_true", help="Start interactive CLI")
     parser.add_argument("--query", "-q", type=str, help="One-shot query")
     parser.add_argument("--health", action="store_true", help="Quick health check")
+    parser.add_argument("--doctor", action="store_true",
+                        help="Diagnose the whole deployment (config, Ollama, services)")
     parser.add_argument("--serve", "-s", action="store_true", help="Start API server with all services")
     parser.add_argument("--host", default="0.0.0.0", help="API server host")
     parser.add_argument("--port", "-p", type=int, default=8088, help="API server port")
     args = parser.parse_args()
 
-    if args.health:
+    if args.doctor:
+        from src.doctor import run_doctor
+        ok = asyncio.run(run_doctor())
+        sys.exit(0 if ok else 1)
+    elif args.health:
         asyncio.run(_run_health())
     elif args.query:
         asyncio.run(_run_query(args.query))
@@ -61,8 +67,11 @@ def _run_server(host: str, port: int):
         async def _start_scheduler():
             try:
                 from src.scheduler import MediaScheduler
+                from src.jobs import register_configured_jobs
                 sched = MediaScheduler()
+                count = register_configured_jobs(sched)
                 logging.info(sched.start())
+                logging.info(f"Registered {count} scheduled job(s)")
             except Exception as e:
                 logging.warning(f"Scheduler not started: {e}")
 

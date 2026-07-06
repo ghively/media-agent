@@ -161,7 +161,8 @@ async def sabnzbd_status() -> str:
         queue_data = await _client()._call("queue")
         queue = queue_data.get("queue", {})
 
-        # Try to get server/connection info
+        # server_stats returns HISTORICAL bandwidth totals (day/week/month/
+        # total + per-server byte counts) — not live connection state
         try:
             server_data = await _client()._call("server_stats", output="json")
         except Exception:
@@ -184,17 +185,19 @@ async def sabnzbd_status() -> str:
         lines.append(f"  Speed Limit:       {speed_limit}%")
         lines.append(f"  Free Disk:         {disk_free} {disk_free_norm}")
 
-        # Server info from server_stats
-        servers = server_data.get("servers", [])
-        if servers:
+        # Historical usage from server_stats (keys: day/week/month/total bytes)
+        def _gb(v):
+            try:
+                return f"{int(v) / (1024 ** 3):.1f} GB"
+            except (TypeError, ValueError):
+                return "?"
+        if server_data:
             lines.append("")
-            lines.append("Servers:")
-            for server in servers:
-                sname = server.get("servername", "Unknown")
-                sactive = server.get("active", False)
-                sconn = server.get("connections", "?")
-                sactive_icon = "✅" if sactive else "❌"
-                lines.append(f"  {sactive_icon} {sname}  —  Connections: {sconn}")
+            lines.append("Bandwidth used:")
+            lines.append(f"  Today: {_gb(server_data.get('day'))}   "
+                         f"Week: {_gb(server_data.get('week'))}   "
+                         f"Month: {_gb(server_data.get('month'))}   "
+                         f"All time: {_gb(server_data.get('total'))}")
 
         # Download/upload totals from queue
         mb_total = queue.get("mb", "0")

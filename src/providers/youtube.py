@@ -86,6 +86,11 @@ async def youtube_download(url: str, content_type: str = "video") -> str:
         config = _get_config()
         download_dir = _ensure_download_dir(config["download_path"])
 
+        from src.preflight import disk_preflight
+        problem = disk_preflight(download_dir)
+        if problem:
+            return problem
+
         # Determine format based on content type
         if content_type in ("music", "concert", "podcast"):
             # Audio-only: best audio, embed metadata
@@ -106,13 +111,20 @@ async def youtube_download(url: str, content_type: str = "video") -> str:
             "-o", output_template,
         ]
 
+        # Both branches need ffmpeg: audio extraction re-encodes to mp3, and
+        # video merging muxes the streams. yt-dlp fails obscurely without it.
+        import shutil as _shutil
+        if _shutil.which("ffmpeg") is None:
+            return ("❌ ffmpeg is not installed — required for audio extraction "
+                    "and merging. Install it (apt install ffmpeg) and retry.")
+
         if extract_audio:
-            cmd.extend(["-f", "bestaudio", "--extract-audio", "--audio-format", "mp3"])
+            cmd.extend(["-f", fmt, "--extract-audio", "--audio-format", "mp3"])
         else:
             cmd.extend(["-f", fmt, "--merge-output-format", "mkv"])
 
-        # Embed metadata
-        cmd.extend(["--embed-metadata", "--add-metadata"])
+        # Embed metadata (--add-metadata is the same option; one is enough)
+        cmd.extend(["--embed-metadata"])
 
         # Add the URL
         cmd.append(url)
@@ -164,7 +176,6 @@ async def youtube_add_subscription(url: str, content_type: str = "concert") -> s
             "yt-dlp",
             "--print", "channel",
             "--print", "channel_url",
-            "--no-download",
             "--skip-download",
             url,
         ]
@@ -242,9 +253,9 @@ async def youtube_check_subscriptions() -> str:
                 cmd = [
                     "yt-dlp",
                     "--flat-playlist",
+                    "--extractor-args", "youtubetab:approximate_date",
                     "--playlist-end", "3",
                     "--print", "%(title)s|%(id)s|%(upload_date)s",
-                    "--no-download",
                     "--skip-download",
                     url,
                 ]
@@ -398,7 +409,6 @@ async def youtube_get_info(url: str) -> str:
             "--print", "view_count",
             "--print", "like_count",
             "--print", "description",
-            "--no-download",
             "--skip-download",
             url,
         ]

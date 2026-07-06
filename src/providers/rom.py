@@ -19,13 +19,19 @@ async def rom_search_archive(query: str, platform: str = "") -> str:
     try:
         import internetarchive as ia
 
+        # Without fields=, the search API returns ONLY the identifier —
+        # title and item_size would silently come back empty. The library
+        # is synchronous, so run searches off the event loop.
+        _fields = ["identifier", "title", "item_size"]
+
+        def _search(q: str) -> list:
+            return list(ia.search_items(q, fields=_fields))[:10]
+
         search_query = f"no-intro {query}" if not platform else f"no-intro {platform} {query}"
-        search = ia.search_items(search_query)
-        results = list(search)[:10]
+        results = await asyncio.to_thread(_search, search_query)
 
         if not results:
-            search = ia.search_items(f"redump {query} {platform}")
-            results = list(search)[:10]
+            results = await asyncio.to_thread(_search, f"redump {query} {platform}")
 
         if not results:
             return f"No ROM sets found for '{query}'."
@@ -51,13 +57,17 @@ async def rom_download(identifier: str, platform: str = "") -> str:
     """Download a ROM set from Internet Archive by identifier.
     Optionally specify platform to organize the download."""
     try:
+        import asyncio
+
         import internetarchive as ia
+
+        from src.preflight import disk_preflight
 
         os.makedirs(ROM_DOWNLOAD_DIR, exist_ok=True)
         dest = ROM_DOWNLOAD_DIR / (platform or identifier)
 
-        # Download the item
-        item = ia.get_item(identifier)
+        # The internetarchive library is synchronous — keep it off the loop
+        item = await asyncio.to_thread(ia.get_item, identifier)
         if not item.exists:
             return f"❌ Item '{identifier}' not found on Internet Archive."
 
@@ -71,6 +81,12 @@ async def rom_download(identifier: str, platform: str = "") -> str:
             # If no ROMs, download all files
             roms = item.files[:20]
 
+        # Refuse before transferring anything if disk space can't cover it
+        estimated_gb = sum(int(f.get("size", 0) or 0) for f in roms[:20]) / (1024 ** 3)
+        problem = disk_preflight(str(ROM_DOWNLOAD_DIR), needed_gb=estimated_gb)
+        if problem:
+            return problem
+
         os.makedirs(dest, exist_ok=True)
         downloaded = 0
         total = len(roms[:20])
@@ -78,7 +94,9 @@ async def rom_download(identifier: str, platform: str = "") -> str:
         lines = [f"Downloading {total} file(s) from '{identifier}'...\n"]
         for f in roms[:20]:
             fname = f.get("name", "")
-            item.download(fname, destdir=str(dest), silent=True)
+            # note: the library's `silent` kwarg was removed in v3.0 —
+            # downloads are quiet unless verbose=True
+            await asyncio.to_thread(item.download, fname, destdir=str(dest))
             downloaded += 1
             lines.append(f"  ✓ {fname}")
 
