@@ -6,47 +6,51 @@ server:
   port: 8088
   api_key: "${MEDIA_AGENT_API_KEY}"
 
+# LLM settings are driven by .env (see .env.example for the two supported
+# model profiles) with safe defaults baked in — ${VAR:-default} falls back
+# to the default when the env var is unset.
 llm:
-  ollama_url: "http://agent-lab-ollama-1:11435"
-  # Recommended models (smallest that work well with this agent's ~60 tools):
-  #   qwen2.5:7b  — default: non-thinking, solid tool calling (~4.7 GB)
-  #   qwen3.5:9b  — best quality/size if you want a thinking model (~6.6 GB);
-  #                 set reasoning: false below (leaks are also stripped in-app)
-  #   qwen3.5:4b  — smallest that stays reliable for tool calling (~3.4 GB)
+  ollama_url: "${OLLAMA_URL:-http://agent-lab-ollama-1:11435}"
+  # Model profiles (see docs/AGENT.md "Model profiles" and .env.example):
+  #   Profile A (default): OLLAMA_MODEL=qwen2.5:7b, OLLAMA_REASONING unset
+  #     — non-thinking, solid tool calling (~4.7 GB)
+  #   Profile B (thinking): OLLAMA_MODEL=qwen3.5:9b, OLLAMA_REASONING=false
+  #     — stronger tool calling per size (~6.6 GB); qwen3.5:4b is the
+  #       smallest reliable option (~3.4 GB)
   # Models below ~4B (qwen3.5:2b, llama3.2:3b) drop or malform tool calls
   # too often with a tool list this large — not recommended.
-  ollama_model: "qwen2.5:7b"
+  ollama_model: "${OLLAMA_MODEL:-qwen2.5:7b}"
   # IMPORTANT: Ollama's default context (2048-4096) is too small for this
   # agent's system prompt + tool schemas. When the context overflows, Ollama
   # silently truncates the prompt and the model starts printing tool-call
   # JSON into chat. 16384 is a safe floor; lower to 8192 if RAM is tight.
-  num_ctx: 16384
+  num_ctx: "${OLLAMA_NUM_CTX:-16384}"
   # Keep the model loaded between requests (avoids reload latency)
   keep_alive: "10m"
   # ONLY for thinking models (qwen3/qwen3.5, deepseek-r1): set to false to
-  # ask Ollama to disable the reasoning trace. MUST stay null for
+  # ask Ollama to disable the reasoning trace. MUST stay unset/empty for
   # non-thinking models (qwen2.5, llama3.x) — Ollama rejects the think flag
   # for models that don't support it. Leaked <think> blocks are stripped
   # from responses in-app either way.
-  reasoning: null
+  reasoning: "${OLLAMA_REASONING:-}"
   # Optional hosted fallback, used automatically when Ollama is unreachable
-  hosted_url: ""
-  hosted_key: ""
-  hosted_model: ""
+  hosted_url: "${HOSTED_LLM_URL:-}"
+  hosted_key: "${HOSTED_LLM_KEY:-}"
+  hosted_model: "${HOSTED_LLM_MODEL:-}"
   temperature: 0
 
 services:
   sonarr:
-    url: "http://192.168.0.133:8989"
+    url: "${SONARR_URL:-http://192.168.0.133:8989}"
     api_key: "${SONARR_API_KEY}"
   radarr:
-    url: "http://192.168.0.133:8310"
+    url: "${RADARR_URL:-http://192.168.0.133:8310}"
     api_key: "${RADARR_API_KEY}"
   emby:
-    url: "http://192.168.0.144:8096"
+    url: "${EMBY_URL:-http://192.168.0.144:8096}"
     api_key: "${EMBY_API_KEY}"
   sabnzbd:
-    url: "http://192.168.0.133:8080"
+    url: "${SABNZBD_URL:-http://192.168.0.133:8080}"
     api_key: "${SABNZBD_API_KEY}"
 
 scheduler:

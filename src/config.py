@@ -6,9 +6,21 @@ from pathlib import Path
 
 
 def _substitute_env(value):
-    """Recursively substitute ${ENV_VAR} patterns with environment variables."""
+    """Recursively substitute ``${ENV_VAR}`` and ``${ENV_VAR:-default}``
+    patterns with environment variables.
+
+    ``${VAR:-default}`` falls back to ``default`` when VAR is unset or empty,
+    so settings.yaml works out of the box without a populated .env.
+    Plain ``${VAR}`` is left as-is when unset (legacy behavior).
+    """
     if isinstance(value, str):
-        return re.sub(r'\$\{([^}]+)\}', lambda m: os.environ.get(m.group(1), m.group(0)), value)
+        def _sub(m):
+            expr = m.group(1)
+            if ":-" in expr:
+                var, default = expr.split(":-", 1)
+                return os.environ.get(var) or default
+            return os.environ.get(expr, m.group(0))
+        return re.sub(r'\$\{([^}]+)\}', _sub, value)
     elif isinstance(value, dict):
         return {k: _substitute_env(v) for k, v in value.items()}
     elif isinstance(value, list):

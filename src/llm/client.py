@@ -75,6 +75,22 @@ class MediaLLM:
         return local
 
 
+def _coerce_reasoning(value) -> bool | None:
+    """Normalize the reasoning setting to True/False/None.
+
+    Values may arrive as strings when set via ${ENV_VAR} substitution
+    (e.g. OLLAMA_REASONING=false). None/empty means "don't send the think
+    flag at all" — required for non-thinking models (qwen2.5, llama3.x),
+    which reject it.
+    """
+    if value is None or isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in ("", "null", "none", "~"):
+        return None
+    return text in ("1", "true", "yes", "on")
+
+
 def create_llm() -> MediaLLM:
     """Create MediaLLM from settings."""
     from src.config import get_settings
@@ -86,7 +102,7 @@ def create_llm() -> MediaLLM:
         temperature=float(llm_cfg.get("temperature", 0) or 0),
         num_ctx=int(llm_cfg.get("num_ctx", 16384)),
         keep_alive=llm_cfg.get("keep_alive", "10m"),
-        reasoning=llm_cfg.get("reasoning", None),
+        reasoning=_coerce_reasoning(llm_cfg.get("reasoning", None)),
         fallback_url=llm_cfg.get("hosted_url", ""),
         fallback_key=llm_cfg.get("hosted_key", ""),
         fallback_model=llm_cfg.get("hosted_model", ""),

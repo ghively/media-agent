@@ -19,6 +19,13 @@ docker compose up -d
 docker exec -it media-agent python -m src.main --interactive
 ```
 
+## Documentation
+
+- **[docs/AGENT.md](docs/AGENT.md)** — agent architecture, the full 58-tool
+  catalog with risk ratings, built-in workflows, model profiles (thinking vs
+  non-thinking) and the recommended approval policy.
+- [SPEC.md](SPEC.md) — original design specification.
+
 ## Local model recommendations (Ollama)
 
 The agent binds ~60 tool schemas, which is demanding for small models. These
@@ -41,8 +48,13 @@ and tool-call JSON into chat — the practical workaround was a non-thinking
 model like `qwen2.5:7b`, which remains the default. Streaming is now filtered
 and reasoning traces are stripped in-app, so thinking models work too; they
 generally tool-call better per parameter, at the cost of extra latency while
-they think. If you use one, set `llm.reasoning: false` (and keep `reasoning`
-unset/null for non-thinking models — Ollama rejects the flag for them).
+they think.
+
+**Both profiles are switchable from `.env` alone** — set `OLLAMA_MODEL` (and
+`OLLAMA_REASONING=false` for thinking models, empty otherwise), then
+`docker compose up -d --force-recreate media-agent`. See
+[docs/AGENT.md](docs/AGENT.md#2-model-profiles) for the profile comparison
+and an A/B test script.
 
 ### Ollama settings that matter
 
