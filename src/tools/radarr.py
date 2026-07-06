@@ -1,7 +1,6 @@
 """Radarr v3 API client + LangGraph tool definitions."""
 import httpx
 from langchain_core.tools import tool
-
 from src.config import get_settings
 
 
@@ -70,7 +69,7 @@ async def add_movie(tmdb_id: int, title: str) -> str:
             "addOptions": {"searchForMovie": True},
         }
         await _client()._post("/movie", body)
-        return f"✅ Added '{title}' (tmdbId: {tmdb_id}) to the library. Searching..."
+        return f"✅ Added '{title}' (tmdbId: {tmdb_id}) to Radarr. Download search started — Emby will update automatically when the file imports."
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 400:
             return f"❌ '{title}' may already be in your library, or the tmdbId is invalid."

@@ -249,30 +249,24 @@ async def search_media(query: str, source_type: str | None = None) -> str:
 # ── Download tool ───────────────────────────────────────────────────────────
 
 @tool
-async def download_media(result_id: int) -> str:
-    """Download a media result by its position number from search_media().
-
-    This tool triggers the appropriate download action based on the result's
-    source (Sonarr → add TV show, Radarr → add movie, Download Station → the
-    item is already tracking). The search results store the connection between
-    position numbers and source IDs.
+async def download_media(source: str, title: str, source_id: int) -> str:
+    """Download media by specifying the source and ID directly.
 
     Args:
-        result_id: The 1-based index from the search_media results list.
+        source: 'movie' for Radarr, 'tv' for Sonarr
+        title: The title of the media
+        source_id: tmdbId for movies, tvdbId for TV shows
     """
-    # This tool cannot download on its own: search results aren't persisted
-    # across tool calls, so there is no position→source mapping to act on.
-    # Be explicit that NOTHING was downloaded and route to the real tool,
-    # rather than implying a download started.
     try:
-        return (
-            f"⚠️  No download was started for result #{result_id} — this dispatcher "
-            f"has no access to the previous search results.\n\n"
-            f"Add it directly with the source-specific tool instead:\n"
-            f"  • TV show:   add_tv_show(tvdb_id=..., title=...)     [sonarr]\n"
-            f"  • Movie:     add_movie(tmdb_id=..., title=...)       [radarr]\n"
-            f"  • Torrent:   download_station_add(url=...)           [download station]\n\n"
-            f"Re-run search_media(query) to get the id/title, then call the tool above."
-        )
+        if source.lower() == "movie":
+            from src.tools.radarr import add_movie
+            result = await add_movie.ainvoke({"tmdb_id": source_id, "title": title})
+            return result
+        elif source.lower() == "tv":
+            from src.tools.sonarr import add_tv_show
+            result = await add_tv_show.ainvoke({"tvdb_id": source_id, "title": title})
+            return result
+        else:
+            return f"❌ Unknown source '{source}'. Use 'movie' or 'tv'."
     except Exception as e:
         return f"❌ Download failed: {type(e).__name__}: {e}"

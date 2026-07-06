@@ -8,6 +8,10 @@ from langchain_core.tools import tool
 
 from src.engine.types import MediaItem, AcquireResult, JobStatus
 
+
+# Import emby_scan for auto-triggering after downloads
+from src.tools.emby import _client as _emby_client_factory
+
 AUDIBLE_AUTH_DIR = Path("/config/audible")
 AUDIBLE_AUTH_FILE = AUDIBLE_AUTH_DIR / "auth.json"
 AUDIBLE_DOWNLOAD_DIR = Path("/tmp/audible_downloads")
@@ -99,11 +103,17 @@ async def audible_download(asin: str) -> str:
         # Cleanup AAXC
         aaxc_path.unlink(missing_ok=True)
 
+        # Trigger Emby library scan
+        try:
+            await _emby_client_factory()._post("/emby/Library/Refresh")
+        except Exception:
+            pass  # Don't fail if Emby scan fails
+
         return (
             f"✅ Downloaded and decrypted: {output_path.name}\n"
             f"   Size: {output_path.stat().st_size / 1024 / 1024:.1f} MB\n"
             f"   Path: {output_path}\n"
-            f"   Run a library scan in Emby to add this to your library."
+            f"   ✅ Emby library scan triggered."
         )
 
     except asyncio.TimeoutError:
@@ -166,8 +176,14 @@ async def audible_download_new() -> str:
         # Save state
         state_file.write_text(json.dumps(list(downloaded)))
 
+        # Trigger Emby library scan
+        try:
+            await _emby_client_factory()._post("/emby/Library/Refresh")
+        except Exception:
+            pass  # Don't fail if Emby scan fails
+
         emoji = "✅" if success_count else "⚠️"
-        return f"{emoji} Downloaded {success_count} new audiobook(s):\n" + "\n".join(results)
+        return f"{emoji} Downloaded {success_count} new audiobook(s):\n" + "\n".join(results) + "\n✅ Emby library scan triggered."
 
     except Exception as e:
         return f"❌ Audible sync failed: {type(e).__name__}: {e}"

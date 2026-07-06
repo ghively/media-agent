@@ -25,6 +25,10 @@ from langchain_core.tools import tool
 from src.config import get_settings
 
 
+# Import emby_scan for auto-triggering after downloads
+from src.tools.emby import _client as _emby_client_factory
+
+
 async def _run_ytdlp(cmd: list[str], timeout: int) -> SimpleNamespace:
     """Run a yt-dlp command without blocking the event loop.
 
@@ -152,10 +156,17 @@ async def youtube_download(url: str, content_type: str = "video") -> str:
 
         # Parse output for the file path
         output_paths = [l.strip() for l in result.stdout.split("\n") if l.strip()]
-        if output_paths:
-            return f"✅ Downloaded: {output_paths[-1]}"
 
-        return f"✅ Download completed successfully (saved to {download_dir})."
+        # Trigger Emby library scan
+        try:
+            await _emby_client_factory()._post("/emby/Library/Refresh")
+        except Exception:
+            pass  # Don't fail if Emby scan fails
+
+        if output_paths:
+            return f"✅ Downloaded: {output_paths[-1]}\n✅ Emby library scan triggered."
+
+        return f"✅ Download completed successfully (saved to {download_dir}).\n✅ Emby library scan triggered."
 
     except asyncio.TimeoutError:
         return "❌ yt-dlp timed out (10 min limit). The download may still be running."

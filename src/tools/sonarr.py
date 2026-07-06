@@ -71,7 +71,7 @@ async def add_tv_show(tvdb_id: int, title: str) -> str:
             "seriesType": "standard",
         }
         await _client()._post("/series", body)
-        return f"✅ Added '{title}' (tvdbId: {tvdb_id}) to the library. Searching for episodes..."
+        return f"✅ Added '{title}' (tvdbId: {tvdb_id}) to Sonarr. Episode search started — Emby will update automatically when episodes import."
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 400:
             return f"❌ '{title}' may already be in your library, or the tvdbId is invalid."

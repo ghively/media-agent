@@ -9,6 +9,10 @@ from langchain_core.tools import tool
 from src.engine.types import MediaItem, AcquireResult, JobStatus
 
 
+# Import emby_scan for auto-triggering after downloads
+from src.tools.emby import _client as _emby_client_factory
+
+
 @tool
 async def bandcamp_download(url: str) -> str:
     """Download a Bandcamp album/track with full metadata and artwork.
@@ -31,12 +35,18 @@ async def bandcamp_download(url: str) -> str:
         files = list(Path(download_dir).rglob("*"))
         audio_files = [f for f in files if f.suffix in (".flac", ".mp3", ".wav", ".aac")]
 
+        # Trigger Emby library scan
+        try:
+            await _emby_client_factory()._post("/emby/Library/Refresh")
+        except Exception:
+            pass  # Don't fail if Emby scan fails
+
         if audio_files:
             artist = audio_files[0].parent.parent.name
             album = audio_files[0].parent.name
-            return f"✅ Downloaded {len(audio_files)} track(s) to {download_dir}\nArtist: {artist}\nAlbum: {album}\n\nRun an Emby library scan to add these to your music library."
+            return f"✅ Downloaded {len(audio_files)} track(s) to {download_dir}\nArtist: {artist}\nAlbum: {album}\n✅ Emby library scan triggered."
         else:
-            return f"✅ Downloaded files to {download_dir}.\nCheck the directory and run an Emby library scan."
+            return f"✅ Downloaded files to {download_dir}.\n✅ Emby library scan triggered."
 
     except asyncio.TimeoutError:
         return "❌ Bandcamp download timed out (120s). The file may be large or the URL may be invalid."

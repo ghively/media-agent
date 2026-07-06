@@ -8,6 +8,10 @@ from langchain_core.tools import tool
 
 from src.engine.types import MediaItem, AcquireResult, JobStatus
 
+
+# Import emby_scan for auto-triggering after downloads
+from src.tools.emby import _client as _emby_client_factory
+
 ROM_DOWNLOAD_DIR = Path("/tmp/rom_downloads")
 ROM_LIBRARY_DIR = Path("/media/roms")  # Mount via NFS when available
 
@@ -93,7 +97,23 @@ async def rom_download(identifier: str, platform: str = "") -> str:
         lines.append(f"\n{emoji} Downloaded {downloaded} file(s) to {dest}" + (f" ({failed} failed)" if failed else ""))
         if total > capped:
             lines.append(f"   ({total - capped} more files skipped — download individually)")
-        lines.append("\nRun `rom_verify_dat` to verify checksums against No-Intro DATs.")
+
+        # Auto-verify against DAT files if platform specified
+        if platform:
+            lines.append(f"\nVerifying ROMs against No-Intro DATs...")
+            try:
+                verify_result = await rom_verify_dat(platform)
+                lines.append(verify_result)
+            except Exception as ve:
+                lines.append(f"  ⚠️ Verification skipped: {ve}")
+
+        # Trigger Emby library scan
+        try:
+            await _emby_client_factory()._post("/emby/Library/Refresh")
+        except Exception:
+            pass  # Don't fail if Emby scan fails
+
+        lines.append("\n✅ Emby library scan triggered.")
         return "\n".join(lines)
 
     except ImportError:
