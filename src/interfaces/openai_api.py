@@ -11,16 +11,26 @@ from src.config import get_settings
 
 app = FastAPI(title="Media Agent", version="0.1.0")
 
-# Build agent on startup (not module-level to avoid import errors in tests)
-_agent = None
+
+def _parse_domain(model: str) -> str | None:
+    """Allow clients to force a domain with model='media-agent:<domain>'
+    (e.g. 'media-agent:tv'). Plain 'media-agent' routes automatically."""
+    if ":" in model:
+        return model.split(":", 1)[1] or None
+    return None
 
 
-def _get_agent():
-    global _agent
-    if _agent is None:
-        from src.graphs.conversational import create_agent
-        _agent = create_agent()
-    return _agent
+def _resolve(messages: list["ChatMessage"], model: str):
+    """Route to the domain agent for this conversation."""
+    from src.graphs.conversational import resolve_agent
+    dict_messages = [{"role": m.role, "content": m.content} for m in messages]
+    agent, domain = resolve_agent(dict_messages, _parse_domain(model))
+    return agent, dict_messages, domain
+
+
+def _recursion_limit() -> int:
+    from src.graphs.conversational import _recursion_limit as limit
+    return limit()
 
 
 class ChatMessage(BaseModel):
@@ -55,10 +65,12 @@ async def health():
 @app.get("/v1/models")
 async def list_models(authorization: str | None = Header(None)):
     _check_auth(authorization)
+    from src.graphs.conversational import DOMAIN_TOOLS
+    models = ["media-agent"] + [f"media-agent:{d}" for d in DOMAIN_TOOLS if d != "core"]
     return {
         "object": "list",
         "data": [
-            {"id": "media-agent", "object": "model", "owned_by": "media-agent"}
+            {"id": m, "object": "model", "owned_by": "media-agent"} for m in models
         ],
     }
 
@@ -72,14 +84,15 @@ async def chat_completions(
 
     if request.stream:
         return StreamingResponse(
-            _stream_response(request.messages),
+            _stream_response(request.messages, request.model),
             media_type="text/event-stream",
         )
     else:
-        agent = _get_agent()
-        result = await agent.ainvoke({
-            "messages": [{"role": m.role, "content": m.content} for m in request.messages]
-        })
+        agent, messages, _ = _resolve(request.messages, request.model)
+        result = await agent.ainvoke(
+            {"messages": messages},
+            config={"recursion_limit": _recursion_limit()},
+        )
         content = result["messages"][-1].content
         return {
             "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
@@ -97,11 +110,11 @@ async def chat_completions(
         }
 
 
-async def _stream_response(messages: list[ChatMessage]):
+async def _stream_response(messages: list[ChatMessage], model: str = "media-agent"):
     """Stream agent response as OpenAI-compatible SSE chunks."""
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
     created = int(time.time())
-    agent = _get_agent()
+    agent, dict_messages, _ = _resolve(messages, model)
 
     def make_chunk(content: str = "", finish_reason: str | None = None) -> str:
         payload = {
@@ -125,8 +138,9 @@ async def _stream_response(messages: list[ChatMessage]):
     # Stream tokens from agent
     try:
         async for event in agent.astream_events(
-            {"messages": [{"role": m.role, "content": m.content} for m in messages]},
+            {"messages": dict_messages},
             version="v2",
+            config={"recursion_limit": _recursion_limit()},
         ):
             if event["event"] == "on_chat_model_stream":
                 chunk = event["data"].get("chunk")

@@ -35,6 +35,44 @@ _UNDO_DIR = ".media_agent_undo"
 # ── public API ───────────────────────────────────────────────────────────
 
 
+def scan_issues(path: str, convention: str = "tv") -> tuple[int, list[tuple[str, str]]]:
+    """Scan *path* against *convention* and return structured results.
+
+    Returns (total_files_scanned, issues) where each issue is
+    (file_path, problem_description). Raises ValueError for a missing
+    path or unknown convention — callers that need report strings should
+    use check_naming() instead.
+    """
+    root = Path(path)
+    if not root.exists():
+        raise ValueError(f"Path does not exist: {path}")
+
+    validator = _VALIDATORS.get(convention)
+    if validator is None:
+        raise ValueError(f"Unknown convention: {convention!r}. Supported: movie, tv, music.")
+
+    issues = []
+    total = 0
+
+    for file_path in root.rglob("*"):
+        if not file_path.is_file():
+            continue
+        if file_path.name.startswith("."):
+            continue
+        if _UNDO_DIR in file_path.parts:
+            continue
+        total += 1
+        parent = file_path.parent
+        grandparent = parent.parent if parent.parent else parent
+        extra = grandparent.parent if grandparent.parent else grandparent
+
+        is_ok, msg = validator(file_path, parent, grandparent, extra)
+        if not is_ok:
+            issues.append((str(file_path), msg))
+
+    return total, issues
+
+
 def check_naming(path: str, convention: str = "tv") -> str:
     """Validate filenames under *path* against *convention*.
 
@@ -45,34 +83,12 @@ def check_naming(path: str, convention: str = "tv") -> str:
 
     Returns a formatted report string.
     """
-    root = Path(path)
-    if not root.exists():
-        return f"❌ Path does not exist: {path}"
+    try:
+        total, issues = scan_issues(path, convention)
+    except ValueError as e:
+        return f"❌ {e}"
 
-    validator = _VALIDATORS.get(convention)
-    if validator is None:
-        return f"❌ Unknown convention: {convention!r}. Supported: movie, tv, music."
-
-    issues = []
-    ok_count = 0
-    total = 0
-
-    for file_path in root.rglob("*"):
-        if not file_path.is_file():
-            continue
-        if file_path.name.startswith("."):
-            continue
-        total += 1
-        parent = file_path.parent
-        grandparent = parent.parent if parent.parent else parent
-        extra = grandparent.parent if grandparent.parent else grandparent
-
-        is_ok, msg = validator(file_path, parent, grandparent, extra)
-        if is_ok:
-            ok_count += 1
-        else:
-            issues.append((str(file_path), msg))
-
+    ok_count = total - len(issues)
     lines = [
         f"📋 Naming check [{convention}] on: {path}",
         f"   Files scanned: {total}",

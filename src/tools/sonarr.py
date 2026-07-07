@@ -43,28 +43,9 @@ async def search_tv(query: str) -> str:
 
 @tool
 async def add_tv_show(tvdb_id: int, title: str) -> str:
-    """Add a TV show to the monitored library by its TVDB ID."""
-    try:
-        s = get_settings().sonarr
-        body = {
-            "tvdbId": tvdb_id,
-            "title": title,
-            "qualityProfileId": s.get("quality_profile_id", 1),
-            "rootFolderPath": s.get("root_folder", "/tv/"),
-            "monitored": True,
-            "addOptions": {"searchForMissingEpisodes": True},
-            "seriesType": "standard",
-        }
-        await _client()._post("/series", body)
-        return f"✅ Added '{title}' (tvdbId: {tvdb_id}) to the library. Searching for episodes..."
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 400:
-            return f"❌ '{title}' may already be in your library, or the tvdbId is invalid."
-        return f"❌ Sonarr returned HTTP {e.response.status_code}: {e.response.text[:200]}"
-    except httpx.ConnectError:
-        return "❌ Cannot connect to Sonarr."
-    except Exception as e:
-        return f"❌ Failed to add show: {type(e).__name__}: {e}"
+    """Add a TV show to the monitored library by its TVDB ID and verify the add."""
+    from src.workflows.pipelines import add_series_verified
+    return await add_series_verified(tvdb_id, title)
 
 
 @tool

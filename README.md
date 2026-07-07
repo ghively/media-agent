@@ -38,10 +38,26 @@ With `--serve` running:
 - **Web dashboard** at `http://localhost:8088/dashboard`
 - **Health endpoint** at `http://localhost:8088/health`
 
+## Architecture (tuned for small local models)
+
+Requests are routed **deterministically** (keyword scoring, no LLM tokens)
+to a domain agent that binds only 4–13 relevant tools instead of all ~60,
+with a compact generated prompt (~200–370 tokens vs ~1,340 before). Common
+multi-step flows are **workflow pipelines** — plain code that runs
+search → decide → act → **verify** in a single tool call, so "add Severance"
+costs one LLM round instead of four. Every mutating action reads back the
+resulting state and only reports `✅ Verified` when confirmed; scheduled
+automation (health, missing-content search, YouTube/Audible sync) runs
+pipelines directly with no LLM at all.
+
+See [WORKFLOWS.md](WORKFLOWS.md) for the full workflow map and the
+deterministic-vs-LLM breakdown.
+
 ## Tool groups
 
 | Group | Tools |
 |---|---|
+| Workflows | `grab_media` (search+add+verify in one call), `system_report`, `sync_youtube`, `library_cleanup` |
 | TV (Sonarr) | search, add, list, queue, history, missing-episode search, calendar, health |
 | Movies (Radarr) | search, add, list, queue, history, missing-movie search, health |
 | Emby | search, recent, libraries, scan, item details |

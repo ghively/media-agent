@@ -20,13 +20,22 @@ class MediaLLM:
         fallback_model: str = "",
         temperature: float = 0,
         timeout: int | None = None,
+        num_ctx: int = 8192,
+        num_predict: int = 1024,
+        keep_alive: str = "10m",
     ):
         from langchain_ollama import ChatOllama
 
+        # num_ctx matters: Ollama's default 2048-token window truncates a
+        # tool-bound prompt silently. num_predict bounds output tokens and
+        # keep_alive avoids reloading the model between agent steps.
         self.local_llm: BaseChatModel = ChatOllama(
             base_url=ollama_url,
             model=ollama_model,
             temperature=temperature,
+            num_ctx=num_ctx,
+            num_predict=num_predict,
+            keep_alive=keep_alive,
         )
         self.fallback_llm: BaseChatModel | None = None
         if fallback_url and fallback_key and fallback_model:
@@ -64,4 +73,7 @@ def create_llm() -> MediaLLM:
         fallback_model=llm_cfg.get("hosted_model", ""),
         temperature=llm_cfg.get("temperature", 0),
         timeout=llm_cfg.get("timeout"),
+        num_ctx=llm_cfg.get("num_ctx", 8192),
+        num_predict=llm_cfg.get("num_predict", 1024),
+        keep_alive=llm_cfg.get("keep_alive", "10m"),
     )

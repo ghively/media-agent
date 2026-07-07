@@ -2,6 +2,15 @@
 from rich.console import Console
 from rich.markdown import Markdown
 
+# Keep the last N messages of history (user + final assistant text only —
+# tool call chatter is deliberately dropped so context stays small).
+MAX_HISTORY_MESSAGES = 12
+
+
+def _trim_history(messages: list[dict]) -> list[dict]:
+    """Bound conversation history for small-model context budgets."""
+    return messages[-MAX_HISTORY_MESSAGES:]
+
 
 async def cli_repl():
     """Interactive REPL for the media agent."""
@@ -9,8 +18,9 @@ async def cli_repl():
     console.print("[bold green]Media Agent[/] — Interactive Mode")
     console.print("Type 'exit' or 'quit' to leave.\n")
 
-    from src.graphs.conversational import create_agent
-    agent = create_agent()
+    from src.graphs.conversational import resolve_agent, run_agent
+
+    history: list[dict] = []
 
     while True:
         try:
@@ -21,12 +31,14 @@ async def cli_repl():
             if not user_input.strip():
                 continue
 
-            with console.status("[dim]Thinking...[/]"):
-                result = await agent.ainvoke({
-                    "messages": [{"role": "user", "content": user_input}]
-                })
+            history.append({"role": "user", "content": user_input})
+            messages = _trim_history(history)
+            _, domain = resolve_agent(messages)
 
-            response = result["messages"][-1].content
+            with console.status(f"[dim]Thinking ({domain})...[/]"):
+                response = await run_agent(messages)
+
+            history.append({"role": "assistant", "content": response})
             console.print()
             console.print(Markdown(response))
             console.print()
@@ -41,20 +53,16 @@ async def cli_repl():
 async def cli_one_shot(query: str):
     """Run a single query and print the result."""
     console = Console()
-    from src.graphs.conversational import create_agent
-    agent = create_agent()
+    from src.graphs.conversational import run_agent
 
     with console.status("[dim]Thinking...[/]"):
-        result = await agent.ainvoke({
-            "messages": [{"role": "user", "content": query}]
-        })
+        response = await run_agent([{"role": "user", "content": query}])
 
-    console.print(result["messages"][-1].content)
+    console.print(response)
 
 
 async def cli_health():
-    """Quick health check."""
+    """Quick health check — deterministic, no LLM involved."""
     console = Console()
-    from src.tools.health import check_all_health
-    result = await check_all_health.ainvoke({})
-    console.print(result)
+    from src.workflows.pipelines import system_report
+    console.print(await system_report())

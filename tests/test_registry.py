@@ -17,6 +17,8 @@ EXPECTED_TOOLS = {
     "library_fix_naming", "library_undo_rename",
     # Unified search
     "search_media", "download_media",
+    # Workflow pipelines
+    "grab_media", "system_report", "sync_youtube", "library_cleanup",
     # SABnzbd
     "sabnzbd_queue", "sabnzbd_history", "sabnzbd_status",
     "sabnzbd_pause", "sabnzbd_resume", "sabnzbd_add_nzb",

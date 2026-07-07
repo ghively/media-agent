@@ -43,6 +43,18 @@ class MediaScheduler:
             lambda: IntervalTrigger(hours=12),
             "Search for missing/wanted episodes every 12 hours",
         ),
+        "missing_search": (
+            lambda: IntervalTrigger(hours=12),
+            "Trigger missing TV + movie searches every 12 hours",
+        ),
+        "youtube_sync": (
+            lambda: IntervalTrigger(hours=6),
+            "Check YouTube subscriptions and download new uploads every 6 hours",
+        ),
+        "audible_sync": (
+            lambda: CronTrigger(hour=4, minute=0),
+            "Download new Audible audiobooks daily at 4:00 AM",
+        ),
         "daily_cleanup": (
             lambda: CronTrigger(hour=3, minute=0),
             "Run daily cleanup tasks at 3:00 AM",

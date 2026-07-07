@@ -43,27 +43,9 @@ async def search_movie(query: str) -> str:
 
 @tool
 async def add_movie(tmdb_id: int, title: str) -> str:
-    """Add a movie to the monitored library by its TMDb ID."""
-    try:
-        s = get_settings().radarr
-        body = {
-            "tmdbId": tmdb_id,
-            "title": title,
-            "qualityProfileId": s.get("quality_profile_id", 1),
-            "rootFolderPath": s.get("root_folder", "/movies/"),
-            "monitored": True,
-            "addOptions": {"searchForMovie": True},
-        }
-        await _client()._post("/movie", body)
-        return f"✅ Added '{title}' (tmdbId: {tmdb_id}) to the library. Searching..."
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 400:
-            return f"❌ '{title}' may already be in your library, or the tmdbId is invalid."
-        return f"❌ Radarr returned HTTP {e.response.status_code}: {e.response.text[:200]}"
-    except httpx.ConnectError:
-        return "❌ Cannot connect to Radarr."
-    except Exception as e:
-        return f"❌ Failed to add movie: {type(e).__name__}: {e}"
+    """Add a movie to the monitored library by its TMDb ID and verify the add."""
+    from src.workflows.pipelines import add_movie_verified
+    return await add_movie_verified(tmdb_id, title)
 
 
 @tool

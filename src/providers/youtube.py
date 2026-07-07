@@ -85,19 +85,11 @@ def _save_subscriptions(subs: list[dict]) -> None:
         json.dump(subs, f, indent=2)
 
 
-# ── Tools ───────────────────────────────────────────────────────────────────
+async def download_video(url: str, content_type: str = "video") -> str:
+    """Download a single video/audio via yt-dlp. Plain coroutine so both the
+    youtube_download tool and the deterministic sync pipeline can use it.
 
-@tool
-async def youtube_download(url: str, content_type: str = "video") -> str:
-    """Download a YouTube video/audio using yt-dlp.
-
-    Downloads the best available quality format. For music/concerts, downloads
-    audio-only (best audio). For 'video', downloads best video+audio.
-
-    Args:
-        url: YouTube video URL to download.
-        content_type: Type of content — 'video' (default), 'concert', 'music',
-                      'podcast', or 'clip'. Determines format selection.
+    Returns a ✅/❌ status string; success includes the downloaded file path.
     """
     try:
         config = _get_config()
@@ -105,15 +97,10 @@ async def youtube_download(url: str, content_type: str = "video") -> str:
 
         # Determine format based on content type
         if content_type in ("music", "concert", "podcast"):
-            # Audio-only: best audio, embed metadata
-            fmt = "bestaudio/best"
             extract_audio = True
         else:
-            # Best video+audio
-            fmt = "bestvideo+bestaudio/best"
             extract_audio = False
 
-        # Build yt-dlp arguments
         output_template = os.path.join(download_dir, "%(title)s.%(ext)s")
 
         args = [
@@ -125,12 +112,9 @@ async def youtube_download(url: str, content_type: str = "video") -> str:
         if extract_audio:
             args.extend(["-f", "bestaudio", "--extract-audio", "--audio-format", "mp3"])
         else:
-            args.extend(["-f", fmt, "--merge-output-format", "mkv"])
+            args.extend(["-f", "bestvideo+bestaudio/best", "--merge-output-format", "mkv"])
 
-        # Embed metadata
         args.extend(["--embed-metadata", "--add-metadata"])
-
-        # Add the URL
         args.append(url)
 
         returncode, stdout, stderr = await _run_ytdlp(args, timeout=600)
@@ -139,12 +123,16 @@ async def youtube_download(url: str, content_type: str = "video") -> str:
             stderr = stderr.strip() or "no error output"
             return f"❌ yt-dlp failed (exit {returncode}): {stderr[:500]}"
 
-        # Parse output for the file path
+        # Verify: yt-dlp printed the final file path — confirm it exists on disk
         output_paths = [l.strip() for l in stdout.split("\n") if l.strip()]
         if output_paths:
-            return f"✅ Downloaded: {output_paths[-1]}"
+            final = Path(output_paths[-1])
+            if final.exists():
+                size_mb = final.stat().st_size / 1024 / 1024
+                return f"✅ Verified: downloaded {final} ({size_mb:.1f} MB)"
+            return f"⚠️ yt-dlp reported {final} but the file is not on disk."
 
-        return f"✅ Download completed successfully (saved to {download_dir})."
+        return f"✅ Download completed (saved to {download_dir})."
 
     except asyncio.TimeoutError:
         return "❌ yt-dlp timed out (10 min limit). The download may still be running."
@@ -152,6 +140,23 @@ async def youtube_download(url: str, content_type: str = "video") -> str:
         return "❌ yt-dlp not found. Install it: pip install yt-dlp  or  apt install yt-dlp"
     except Exception as e:
         return f"❌ YouTube download failed: {type(e).__name__}: {e}"
+
+
+# ── Tools ───────────────────────────────────────────────────────────────────
+
+@tool
+async def youtube_download(url: str, content_type: str = "video") -> str:
+    """Download a YouTube video/audio using yt-dlp and verify the file exists.
+
+    Downloads the best available quality format. For music/concerts, downloads
+    audio-only (best audio). For 'video', downloads best video+audio.
+
+    Args:
+        url: YouTube video URL to download.
+        content_type: Type of content — 'video' (default), 'concert', 'music',
+                      'podcast', or 'clip'. Determines format selection.
+    """
+    return await download_video(url, content_type)
 
 
 @tool

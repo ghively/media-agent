@@ -63,6 +63,13 @@ def _search_tools():
     return [search_media, download_media]
 
 
+def _workflow_tools():
+    from src.tools.workflows import (
+        grab_media, system_report, sync_youtube, library_cleanup,
+    )
+    return [grab_media, system_report, sync_youtube, library_cleanup]
+
+
 def _sabnzbd_tools():
     from src.tools.sabnzbd import (
         sabnzbd_queue, sabnzbd_history, sabnzbd_status,
@@ -121,6 +128,7 @@ _register("emby", _emby_tools)
 _register("health", _health_tools)
 _register("library", _library_tools)
 _register("search", _search_tools)
+_register("workflows", _workflow_tools)
 _register("sabnzbd", _sabnzbd_tools)
 _register("download_station", _download_station_tools)
 _register("bandcamp", _bandcamp_tools)

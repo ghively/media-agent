@@ -53,23 +53,39 @@ def _run_server(host: str, port: int):
 
     # Start the scheduler on the server's event loop — AsyncIOScheduler
     # needs a running asyncio loop, so it must start inside a startup hook.
+    # Scheduled jobs run deterministic pipelines directly: no LLM involved.
     @api_app.on_event("startup")
     async def _start_scheduler():
         try:
             from src.config import get_settings
-            if not get_settings().scheduler.get("enabled", False):
+            cfg = get_settings().scheduler
+            if not cfg.get("enabled", False):
                 logging.info("Scheduler disabled in config")
                 return
 
             from src.scheduler import MediaScheduler
-            from src.tools.health import check_all_health
+            from src.workflows import pipelines
+            from src.providers.audible import audible_download_new
+
+            callbacks = {
+                "health_check": pipelines.system_report,
+                "missing_search": pipelines.trigger_missing_searches,
+                "youtube_sync": pipelines.sync_youtube,
+                "audible_sync": lambda: audible_download_new.ainvoke({}),
+            }
 
             sched = MediaScheduler()
-
-            async def _health_job() -> str:
-                return await check_all_health.ainvoke({})
-
-            sched.add_job("health_check", _health_job, trigger="health_check")
+            jobs = cfg.get("jobs") or [{"name": "health_check"}]
+            for job in jobs:
+                name = job.get("name", "")
+                callback = callbacks.get(name)
+                if callback is None:
+                    logging.warning("Unknown scheduler job %r — known: %s",
+                                    name, sorted(callbacks))
+                    continue
+                logging.info(sched.add_job(
+                    name, callback, trigger=job.get("trigger", name),
+                ))
             logging.info(sched.start())
         except Exception as e:
             logging.warning("Scheduler not started: %s", e)

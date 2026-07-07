@@ -14,6 +14,11 @@ llm:
   hosted_model: ""
   temperature: 0
   timeout: 15
+  # Small-model tuning:
+  num_ctx: 8192          # Ollama context window (default 2048 silently truncates tool prompts)
+  num_predict: 1024      # cap on output tokens per LLM step
+  keep_alive: "10m"      # keep the model loaded between agent steps
+  recursion_limit: 12    # max ReAct steps per request (bounds runaway loops)
 
 services:
   sonarr:
@@ -42,9 +47,18 @@ services:
     download_path: "/media/youtube"
     subscriptions_file: "/state/youtube_subs.json"
 
+# Scheduled automation — deterministic pipelines, no LLM involved.
+# Available jobs: health_check, missing_search, youtube_sync, audible_sync
+# trigger: a template name (see src/scheduler.py) or cron "min hour dom mon dow"
 scheduler:
   enabled: false
-  jobs: []
+  jobs:
+    - name: health_check          # every 30 min
+    - name: missing_search        # every 12 h
+    - name: youtube_sync          # every 6 h
+    # - name: audible_sync        # daily 4:00
+    # - name: youtube_sync
+    #   trigger: "0 */4 * * *"    # custom cron override
 
 library:
   media_root: "/media"
