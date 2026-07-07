@@ -1,13 +1,20 @@
 [build-system]
 requires = ["setuptools>=68.0"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "media-agent"
 version = "0.1.0"
 description = "Standalone containerized agent for managing personal media ecosystem"
 requires-python = ">=3.11"
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

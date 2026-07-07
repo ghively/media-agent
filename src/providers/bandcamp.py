@@ -1,12 +1,8 @@
 """Bandcamp download provider — wraps bandcamp-downloader (bandcamp-dl)."""
 import asyncio
-import json
 import os
-import subprocess
 from pathlib import Path
 from langchain_core.tools import tool
-
-from src.engine.types import MediaItem, AcquireResult, JobStatus
 
 
 @tool
@@ -34,9 +30,9 @@ async def bandcamp_download(url: str) -> str:
         if audio_files:
             artist = audio_files[0].parent.parent.name
             album = audio_files[0].parent.name
-            return f"✅ Downloaded {len(audio_files)} track(s) to {download_dir}\nArtist: {artist}\nAlbum: {album}\n\nRun `library_sort_dir` to organize into the media library."
+            return f"✅ Downloaded {len(audio_files)} track(s) to {download_dir}\nArtist: {artist}\nAlbum: {album}\n\nRun `library_fix_naming` to organize into the media library."
         else:
-            return f"✅ Downloaded files to {download_dir}.\nCheck the directory and run `library_sort_dir` to organize."
+            return f"✅ Downloaded files to {download_dir}.\nCheck the directory and run `library_fix_naming` to organize."
 
     except asyncio.TimeoutError:
         return "❌ Bandcamp download timed out (120s). The file may be large or the URL may be invalid."

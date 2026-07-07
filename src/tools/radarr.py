@@ -1,38 +1,22 @@
-"""Radarr v3 API client + LangGraph tool definitions."""
+"""Radarr v3 API tools."""
 import httpx
 from langchain_core.tools import tool
 
 from src.config import get_settings
+from src.tools.arr import ArrClient
+
+# Backwards-compatible alias
+RadarrClient = ArrClient
 
 
-class RadarrClient:
-    """Async client for Radarr v3 API."""
-
-    def __init__(self, base_url: str, api_key: str, timeout: int = 30):
-        self.base_url = base_url.rstrip("/")
-        self.headers = {"X-Api-Key": api_key}
-        self.timeout = timeout
-
-    async def _get(self, endpoint: str, params: dict | None = None):
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.get(
-                f"{self.base_url}/api/v3{endpoint}", headers=self.headers, params=params
-            )
-            resp.raise_for_status()
-            return resp.json()
-
-    async def _post(self, endpoint: str, json_data: dict):
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(
-                f"{self.base_url}/api/v3{endpoint}", headers=self.headers, json=json_data
-            )
-            resp.raise_for_status()
-            return resp.json()
-
-
-def _client() -> RadarrClient:
+def _client() -> ArrClient:
     s = get_settings().radarr
-    return RadarrClient(s["url"], s["api_key"])
+    if not s.get("url") or not s.get("api_key"):
+        raise RuntimeError(
+            "Radarr is not configured — set services.radarr.url and api_key "
+            "in config/settings.yaml"
+        )
+    return ArrClient(s["url"], s["api_key"])
 
 
 @tool
@@ -61,11 +45,12 @@ async def search_movie(query: str) -> str:
 async def add_movie(tmdb_id: int, title: str) -> str:
     """Add a movie to the monitored library by its TMDb ID."""
     try:
+        s = get_settings().radarr
         body = {
             "tmdbId": tmdb_id,
             "title": title,
-            "qualityProfileId": 1,
-            "rootFolderPath": "/movies/",
+            "qualityProfileId": s.get("quality_profile_id", 1),
+            "rootFolderPath": s.get("root_folder", "/movies/"),
             "monitored": True,
             "addOptions": {"searchForMovie": True},
         }

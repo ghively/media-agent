@@ -10,11 +10,9 @@ Usage in main.py / API server startup::
     from src.interfaces.dashboard import mount_dashboard
     mount_dashboard(app)
 """
-import asyncio
-import time
-from datetime import datetime
+from datetime import datetime, timezone
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from src.config import get_settings
@@ -52,58 +50,42 @@ def _register_routes(app: FastAPI) -> None:
 # ── data gathering ────────────────────────────────────────────────────────
 
 
+async def _arr_card(name: str, health_tool, queue_tool) -> dict:
+    """Build a dashboard card for an *arr service from its health/queue tools."""
+    try:
+        # These are LangChain tools — invoke via .ainvoke, not direct calls
+        health_text = await health_tool.ainvoke({})
+        queue_text = await queue_tool.ainvoke({})
+        ok = "✅" in health_text
+        return {
+            "name": name,
+            "status": "healthy" if ok else "warning",
+            "health": health_text,
+            "queue": queue_text,
+            "emoji": "✅" if ok else "⚠️",
+        }
+    except Exception as e:
+        return {
+            "name": name,
+            "status": "error",
+            "health": f"❌ {e}",
+            "queue": "N/A",
+            "emoji": "❌",
+        }
+
+
 async def _gather_health_data() -> dict:
     """Collect live status from all services asynchronously."""
-    from src.tools.sonarr import SonarrClient, get_tv_health, get_tv_queue
-    from src.tools.radarr import RadarrClient, get_movie_health, get_movie_queue
+    from src.tools.sonarr import get_tv_health, get_tv_queue
+    from src.tools.radarr import get_movie_health, get_movie_queue
     from src.tools.emby import EmbyClient
 
     settings = get_settings()
-    now = datetime.utcnow().isoformat() + "Z"
+    now = datetime.now(timezone.utc).isoformat()
 
     services = {}
-
-    # Sonarr
-    try:
-        health_text = await get_tv_health()
-        queue_text = await get_tv_queue()
-        sonarr_ok = "✅" in health_text
-        services["sonarr"] = {
-            "name": "Sonarr",
-            "status": "healthy" if sonarr_ok else "warning",
-            "health": health_text,
-            "queue": queue_text,
-            "emoji": "✅" if sonarr_ok else "⚠️",
-        }
-    except Exception as e:
-        services["sonarr"] = {
-            "name": "Sonarr",
-            "status": "error",
-            "health": f"❌ {e}",
-            "queue": "N/A",
-            "emoji": "❌",
-        }
-
-    # Radarr
-    try:
-        health_text = await get_movie_health()
-        queue_text = await get_movie_queue()
-        radarr_ok = "✅" in health_text
-        services["radarr"] = {
-            "name": "Radarr",
-            "status": "healthy" if radarr_ok else "warning",
-            "health": health_text,
-            "queue": queue_text,
-            "emoji": "✅" if radarr_ok else "⚠️",
-        }
-    except Exception as e:
-        services["radarr"] = {
-            "name": "Radarr",
-            "status": "error",
-            "health": f"❌ {e}",
-            "queue": "N/A",
-            "emoji": "❌",
-        }
+    services["sonarr"] = await _arr_card("Sonarr", get_tv_health, get_tv_queue)
+    services["radarr"] = await _arr_card("Radarr", get_movie_health, get_movie_queue)
 
     # Emby
     try:
@@ -117,7 +99,7 @@ async def _gather_health_data() -> dict:
             "libraries": len(libraries) if isinstance(libraries, list) else 0,
             "emoji": "✅" if emby_ok else "⚠️",
         }
-    except Exception as e:
+    except Exception:
         services["emby"] = {
             "name": "Emby",
             "status": "error",

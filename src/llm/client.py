@@ -1,20 +1,15 @@
-"""LLM client with circuit breaker pattern for local-first routing."""
-import asyncio
-import time
-from enum import Enum
-from typing import Optional
+"""LLM client — local-first Ollama with optional hosted fallback.
 
+The fallback is wired with LangChain's `.with_fallbacks()`, so any error
+raised by the local model (connection refused, timeout, etc.) automatically
+retries the same call against the hosted model.
+"""
 from langchain_core.language_models import BaseChatModel
-
-
-class CircuitState(Enum):
-    CLOSED = "closed"
-    OPEN = "open"
-    HALF_OPEN = "half_open"
+from langchain_core.runnables import Runnable
 
 
 class MediaLLM:
-    """Local-first LLM router with circuit breaker."""
+    """Local-first LLM router with optional hosted fallback."""
 
     def __init__(
         self,
@@ -23,60 +18,38 @@ class MediaLLM:
         fallback_url: str = "",
         fallback_key: str = "",
         fallback_model: str = "",
+        temperature: float = 0,
+        timeout: int | None = None,
     ):
         from langchain_ollama import ChatOllama
 
-        self.local_llm = ChatOllama(
+        self.local_llm: BaseChatModel = ChatOllama(
             base_url=ollama_url,
             model=ollama_model,
-            temperature=0,
+            temperature=temperature,
         )
-        self.fallback_llm = None
-        if fallback_url and fallback_key:
+        self.fallback_llm: BaseChatModel | None = None
+        if fallback_url and fallback_key and fallback_model:
             from langchain_openai import ChatOpenAI
             self.fallback_llm = ChatOpenAI(
                 base_url=fallback_url,
                 api_key=fallback_key,
                 model=fallback_model,
-                temperature=0,
+                temperature=temperature,
+                timeout=timeout,
             )
 
-        self._state = CircuitState.CLOSED
-        self._failures = 0
-        self._last_failure_time = 0.0
-        self._lock = asyncio.Lock()
-        self._failure_threshold = 3
-        self._recovery_timeout = 60
-        self._half_open_calls = 0
-        self._half_open_max = 1
+    def runnable(self, tools: list | None = None) -> Runnable:
+        """Build the model runnable for the agent.
 
-    async def get_llm(self) -> BaseChatModel:
-        async with self._lock:
-            if self._state == CircuitState.CLOSED:
-                return self.local_llm
-            elif self._state == CircuitState.OPEN:
-                if time.time() - self._last_failure_time > self._recovery_timeout:
-                    self._state = CircuitState.HALF_OPEN
-                    self._half_open_calls = 0
-                    return self.local_llm
-                return self.fallback_llm if self.fallback_llm else self.local_llm
-            else:  # HALF_OPEN
-                if self._half_open_calls < self._half_open_max:
-                    self._half_open_calls += 1
-                    return self.local_llm
-                return self.fallback_llm if self.fallback_llm else self.local_llm
-
-    async def record_success(self):
-        async with self._lock:
-            self._failures = 0
-            self._state = CircuitState.CLOSED
-
-    async def record_failure(self):
-        async with self._lock:
-            self._failures += 1
-            self._last_failure_time = time.time()
-            if self._failures >= self._failure_threshold:
-                self._state = CircuitState.OPEN
+        Binds tools to both the local and fallback models so the fallback
+        can also call tools, then chains them with `.with_fallbacks()`.
+        """
+        local = self.local_llm.bind_tools(tools) if tools else self.local_llm
+        if self.fallback_llm is None:
+            return local
+        fallback = self.fallback_llm.bind_tools(tools) if tools else self.fallback_llm
+        return local.with_fallbacks([fallback])
 
 
 def create_llm() -> MediaLLM:
@@ -84,9 +57,11 @@ def create_llm() -> MediaLLM:
     from src.config import get_settings
     llm_cfg = get_settings().llm
     return MediaLLM(
-        ollama_url=llm_cfg.get("ollama_url", "http://agent-lab-ollama-1:11435"),
+        ollama_url=llm_cfg.get("ollama_url", "http://localhost:11434"),
         ollama_model=llm_cfg.get("ollama_model", "qwen3.5:9b"),
         fallback_url=llm_cfg.get("hosted_url", ""),
         fallback_key=llm_cfg.get("hosted_key", ""),
         fallback_model=llm_cfg.get("hosted_model", ""),
+        temperature=llm_cfg.get("temperature", 0),
+        timeout=llm_cfg.get("timeout"),
     )

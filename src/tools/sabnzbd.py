@@ -49,6 +49,11 @@ class SabnzbdClient:
 
 def _client() -> SabnzbdClient:
     s = get_settings().sabnzbd
+    if not s.get("url") or not s.get("api_key"):
+        raise RuntimeError(
+            "SABnzbd is not configured — set services.sabnzbd.url and api_key "
+            "in config/settings.yaml"
+        )
     return SabnzbdClient(s["url"], s["api_key"])
 
 
@@ -83,11 +88,7 @@ async def sabnzbd_queue() -> str:
                 mb_left = slot.get("mbleft", "0")
                 status_str = slot.get("status", "?")
 
-                # Format index number
-                index_label = slot.get("index", "")
-                lines.append(
-                    f"  {i}. {filename}"
-                )
+                lines.append(f"  {i}. {filename}")
                 lines.append(f"     Size: {size}  |  Left: {mb_left} MB  |  Status: {status_str}")
 
             if len(slots) > 20:

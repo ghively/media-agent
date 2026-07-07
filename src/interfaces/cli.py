@@ -1,7 +1,4 @@
 """CLI interface for Media Agent."""
-import asyncio
-import sys
-
 from rich.console import Console
 from rich.markdown import Markdown
 

@@ -1,12 +1,7 @@
 """ROM/classic games provider — Internet Archive downloads + DAT verification."""
-import asyncio
-import json
 import os
-import subprocess
 from pathlib import Path
 from langchain_core.tools import tool
-
-from src.engine.types import MediaItem, AcquireResult, JobStatus
 
 ROM_DOWNLOAD_DIR = Path("/tmp/rom_downloads")
 ROM_LIBRARY_DIR = Path("/media/roms")  # Mount via NFS when available
@@ -69,14 +64,16 @@ async def rom_download(identifier: str, platform: str = "") -> str:
 
         if not roms:
             # If no ROMs, download all files
-            roms = item.files[:20]
+            roms = list(item.files)
+
+        total = len(roms)
+        batch = roms[:20]
 
         os.makedirs(dest, exist_ok=True)
         downloaded = 0
-        total = len(roms[:20])
 
-        lines = [f"Downloading {total} file(s) from '{identifier}'...\n"]
-        for f in roms[:20]:
+        lines = [f"Downloading {len(batch)} of {total} file(s) from '{identifier}'...\n"]
+        for f in batch:
             fname = f.get("name", "")
             item.download(fname, destdir=str(dest), silent=True)
             downloaded += 1
@@ -137,25 +134,22 @@ async def rom_verify_dat(platform: str) -> str:
 
         verified = 0
         unknown = 0
-        modified = 0
         results = []
 
         for rf in rom_files[:100]:
-            md5 = hashlib.md5(rf.read_bytes()).hexdigest()
+            data = rf.read_bytes()
+            md5 = hashlib.md5(data).hexdigest()
             if md5 in known_games:
                 verified += 1
-            else:
-                # Also check headerless versions
-                # Many ROMs have a 512-byte header
-                if rf.stat().st_size > 512:
-                    data = rf.read_bytes()
-                    if len(data) > 512:
-                        headerless = hashlib.md5(data[512:]).hexdigest()
-                        if headerless in known_games:
-                            verified += 1
-                            continue
-                unknown += 1
-                results.append(rf.name)
+                continue
+            # Also check headerless version — many ROMs have a 512-byte header
+            if len(data) > 512:
+                headerless = hashlib.md5(data[512:]).hexdigest()
+                if headerless in known_games:
+                    verified += 1
+                    continue
+            unknown += 1
+            results.append(rf.name)
 
         return (
             f"✅ ROM verification for {platform}: {verified} verified, {unknown} unknown\n\n"
@@ -181,13 +175,14 @@ async def rom_get_collection() -> str:
         if not platforms:
             return "No ROMs found in the library."
 
+        rom_extensions = {".nes", ".sfc", ".smc", ".gen", ".md", ".n64", ".z64",
+                          ".gba", ".gbc", ".gb", ".iso", ".bin", ".chd"}
         lines = ["ROM collection by platform:\n"]
         for platform in sorted(platforms):
-            count = len(list(platform.rglob("*.nes"))) + len(list(platform.rglob("*.sfc"))) + \
-                    len(list(platform.rglob("*.smc"))) + len(list(platform.rglob("*.gen"))) + \
-                    len(list(platform.rglob("*.n64"))) + len(list(platform.rglob("*.gba"))) + \
-                    len(list(platform.rglob("*.gbc"))) + len(list(platform.rglob("*.iso"))) + \
-                    len(list(platform.rglob("*.chd")))
+            count = sum(
+                1 for f in platform.rglob("*")
+                if f.is_file() and f.suffix.lower() in rom_extensions
+            )
             if count > 0:
                 lines.append(f"  • {platform.name}: {count} games")
         return "\n".join(lines)

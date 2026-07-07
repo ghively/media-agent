@@ -10,10 +10,9 @@ are reversible.
 """
 import os
 import re
-import shutil
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ── patterns ─────────────────────────────────────────────────────────────
 
@@ -140,7 +139,7 @@ def fix_naming(path: str, convention: str = "tv") -> str:
             undo_log.append({
                 "old": str(old_path),
                 "new": str(new_path),
-                "time": datetime.utcnow().isoformat(),
+                "time": datetime.now(timezone.utc).isoformat(),
             })
             renamed += 1
         except OSError as e:
@@ -149,7 +148,7 @@ def fix_naming(path: str, convention: str = "tv") -> str:
     # Write undo log
     undo_file = None
     if undo_log:
-        undo_stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        undo_stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         undo_file = undo_dir / f"undo_{convention}_{undo_stamp}.json"
         with open(undo_file, "w") as f:
             json.dump(undo_log, f, indent=2)
@@ -179,7 +178,7 @@ def _validate_movie(fp: Path, parent: Path, grandparent: Path, extra: Path):
     # Parent dir should match
     m = _MOVIE_PATTERN.match(name + ext)
     if not m:
-        return False, f"Filename does not match 'Title (Year).ext'"
+        return False, "Filename does not match 'Title (Year).ext'"
     title = m.group("title")
     year = m.group("year")
     expected_parent = f"{title} ({year})"
@@ -194,7 +193,7 @@ def _validate_tv(fp: Path, parent: Path, grandparent: Path, extra: Path):
     ext = fp.suffix
     m = _TV_PATTERN.match(name + ext)
     if not m:
-        return False, f"Filename does not match 'Show - s##e## - Title.ext'"
+        return False, "Filename does not match 'Show - s##e## - Title.ext'"
     show = m.group("show")
     season = m.group("season")
     # Parent should be "Season ##"
@@ -213,7 +212,7 @@ def _validate_music(fp: Path, parent: Path, grandparent: Path, extra: Path):
     ext = fp.suffix
     m = _MUSIC_PATTERN.match(name + ext)
     if not m:
-        return False, f"Filename does not match 'Track ## - Title.ext'"
+        return False, "Filename does not match 'Track ## - Title.ext'"
     return True, ""
 
 
@@ -229,7 +228,6 @@ _VALIDATORS = {
 
 def _fix_movie(fp: Path, root: Path):
     """Rename to /Title (Year)/Title (Year).ext"""
-    name = fp.stem
     m = _MOVIE_PATTERN.match(fp.name)
     if m:
         # Already valid — ensure parent exists

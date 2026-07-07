@@ -19,15 +19,28 @@ services:
   sonarr:
     url: "http://192.168.0.133:8989"
     api_key: "${SONARR_API_KEY}"
+    quality_profile_id: 1     # used when adding shows
+    root_folder: "/tv/"       # used when adding shows
   radarr:
     url: "http://192.168.0.133:8310"
     api_key: "${RADARR_API_KEY}"
+    quality_profile_id: 1     # used when adding movies
+    root_folder: "/movies/"   # used when adding movies
   emby:
     url: "http://192.168.0.144:8096"
     api_key: "${EMBY_API_KEY}"
   sabnzbd:
     url: "http://192.168.0.133:8080"
     api_key: "${SABNZBD_API_KEY}"
+  # Optional — Synology Download Station (torrents)
+  download_station:
+    url: "http://192.168.0.133:5000"
+    username: "${DS_USER}"
+    password: "${DS_PASS}"
+  # Optional — YouTube downloads/subscriptions (needs yt-dlp installed)
+  youtube:
+    download_path: "/media/youtube"
+    subscriptions_file: "/state/youtube_subs.json"
 
 scheduler:
   enabled: false

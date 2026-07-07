@@ -6,9 +6,7 @@ via the agent's conversational graph.
 
 Requires: ``apscheduler>=3.10``
 """
-import asyncio
 import logging
-from datetime import datetime
 from typing import Any, Callable, Coroutine
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler

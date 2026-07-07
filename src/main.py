@@ -1,7 +1,7 @@
 """Media Agent entry point."""
 import argparse
 import asyncio
-import sys
+import logging
 
 
 def main():
@@ -43,8 +43,7 @@ async def _run_interactive():
 
 def _run_server(host: str, port: int):
     """Start the API server with all interfaces: OpenAI-compatible API,
-    web dashboard, and optional scheduler."""
-    import threading
+    web dashboard, and (if enabled in config) the scheduler."""
     import uvicorn
 
     # Mount dashboard on the existing FastAPI app
@@ -52,18 +51,28 @@ def _run_server(host: str, port: int):
     from src.interfaces.openai_api import app as api_app
     mount_dashboard(api_app)
 
-    # Start scheduler in background thread
-    try:
-        from src.scheduler import MediaScheduler
-        sched = MediaScheduler()
-        import threading
-        t = threading.Thread(target=lambda: sched.start(), daemon=True)
-        t.start()
-        import logging
-        logging.info("Scheduler started")
-    except Exception as e:
-        import logging
-        logging.warning(f"Scheduler not started: {e}")
+    # Start the scheduler on the server's event loop — AsyncIOScheduler
+    # needs a running asyncio loop, so it must start inside a startup hook.
+    @api_app.on_event("startup")
+    async def _start_scheduler():
+        try:
+            from src.config import get_settings
+            if not get_settings().scheduler.get("enabled", False):
+                logging.info("Scheduler disabled in config")
+                return
+
+            from src.scheduler import MediaScheduler
+            from src.tools.health import check_all_health
+
+            sched = MediaScheduler()
+
+            async def _health_job() -> str:
+                return await check_all_health.ainvoke({})
+
+            sched.add_job("health_check", _health_job, trigger="health_check")
+            logging.info(sched.start())
+        except Exception as e:
+            logging.warning("Scheduler not started: %s", e)
 
     uvicorn.run(
         api_app,
@@ -72,25 +81,6 @@ def _run_server(host: str, port: int):
         reload=False,
         log_level="info",
     )
-
-
-def _run_serve():
-    """Run both the API server and CLI interface."""
-    import threading
-    from src.interfaces.openai_api import app as api_app
-    from src.interfaces.dashboard import mount_dashboard
-    mount_dashboard(api_app)
-
-    # Start scheduler
-    try:
-        from src.scheduler import get_scheduler
-        sched = get_scheduler()
-        threading.Thread(target=lambda: asyncio.run(sched.start()), daemon=True).start()
-    except Exception as e:
-        pass
-
-    import uvicorn
-    uvicorn.run(api_app, host="0.0.0.0", port=8088, log_level="info")
 
 
 if __name__ == "__main__":

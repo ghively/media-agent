@@ -2,11 +2,8 @@
 import asyncio
 import json
 import os
-import subprocess
 from pathlib import Path
 from langchain_core.tools import tool
-
-from src.engine.types import MediaItem, AcquireResult, JobStatus
 
 AUDIBLE_AUTH_DIR = Path("/config/audible")
 AUDIBLE_AUTH_FILE = AUDIBLE_AUTH_DIR / "auth.json"
@@ -75,12 +72,12 @@ async def audible_download(asin: str) -> str:
         if proc.returncode != 0:
             return f"❌ Audible download failed: {stderr.decode()[:500]}"
 
-        # Find the downloaded AAXC file
+        # Find the downloaded AAXC file (newest, in case older downloads remain)
         aaxc_files = list(Path(AUDIBLE_DOWNLOAD_DIR).rglob("*.aaxc"))
         if not aaxc_files:
             return "❌ Downloaded file not found (AAXC)."
 
-        aaxc_path = aaxc_files[0]
+        aaxc_path = max(aaxc_files, key=lambda p: p.stat().st_mtime)
 
         # Step 2: Remove DRM (decrypt to M4B)
         output_path = aaxc_path.with_suffix(".m4b")
@@ -99,10 +96,12 @@ async def audible_download(asin: str) -> str:
         # Cleanup AAXC
         aaxc_path.unlink(missing_ok=True)
 
-        return f"✅ Downloaded and decrypted: {output_path.name}\n"
-        f"   Size: {output_path.stat().st_size / 1024 / 1024:.1f} MB\n"
-        f"   Path: {output_path}\n"
-        f"   Run `library_sort_dir` to organize into the audiobooks library."
+        return (
+            f"✅ Downloaded and decrypted: {output_path.name}\n"
+            f"   Size: {output_path.stat().st_size / 1024 / 1024:.1f} MB\n"
+            f"   Path: {output_path}\n"
+            f"   Run `library_fix_naming` to organize into the audiobooks library."
+        )
 
     except asyncio.TimeoutError:
         return "❌ Download timed out. Large audiobooks may need more time."
@@ -116,6 +115,9 @@ async def audible_download(asin: str) -> str:
 async def audible_download_new() -> str:
     """Download audiobooks added to your library since the last sync."""
     try:
+        if not AUDIBLE_AUTH_FILE.exists():
+            return "❌ Audible not authenticated. Run `audible_setup_auth` first."
+
         # Get library
         proc = await asyncio.create_subprocess_exec(
             "audible", "library", "list",
@@ -140,10 +142,10 @@ async def audible_download_new() -> str:
             return "No new audiobooks found since last sync."
 
         results = []
+        succeeded = 0
         for book in new_books[:5]:  # Limit to 5 per sync
             asin = book["asin"]
             title = book.get("title", "Unknown")
-            results.append(f"Downloading: {title} ({asin})")
             # Download each book
             proc = await asyncio.create_subprocess_exec(
                 "audible", "download", "--asin", asin,
@@ -152,13 +154,22 @@ async def audible_download_new() -> str:
                 "--aaxc",
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             )
-            await asyncio.wait_for(proc.communicate(), timeout=120)
-            downloaded.add(asin)
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+            if proc.returncode == 0:
+                downloaded.add(asin)
+                succeeded += 1
+                results.append(f"  ✅ {title} ({asin})")
+            else:
+                results.append(f"  ❌ {title} ({asin}): {stderr.decode()[:200]}")
 
-        # Save state
-        state_file.write_text(json.dumps(list(downloaded)))
+        # Save state (only successful downloads are marked done)
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        state_file.write_text(json.dumps(sorted(downloaded)))
 
-        return f"✅ Downloaded {len(new_books[:5])} new audiobook(s):\n" + "\n".join(results)
+        return (
+            f"Downloaded {succeeded}/{len(new_books[:5])} new audiobook(s):\n"
+            + "\n".join(results)
+        )
 
     except Exception as e:
         return f"❌ Audible sync failed: {type(e).__name__}: {e}"

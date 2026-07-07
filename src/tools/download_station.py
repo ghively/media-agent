@@ -1,12 +1,10 @@
 """Synology Download Station API client + LangGraph tool definitions.
 
-Uses Synology DSM V6 API authentication (SID cookie) against the NAS at port 5000.
-The NAS URL is derived from config — the 'url' field under services.sonarr is used
-as the NAS host (port 5000), since Sonarr runs on the same Synology NAS.
+Uses Synology DSM V6 API authentication (SID cookie).
 
-For MVP simplicity, this client attempts cookie-based V6 auth. If credentials
-are not configured, it falls back to an unauthenticated mode that may work if
-Download Station has been configured to allow it.
+This client attempts cookie-based V6 auth. If credentials are not configured,
+it falls back to an unauthenticated mode that may work if Download Station
+has been configured to allow it.
 
 Required config (config/settings.yaml):
   services:
@@ -112,8 +110,13 @@ class DownloadStationClient:
 
 def _client() -> DownloadStationClient:
     s = get_settings().download_station
+    if not s.get("url"):
+        raise RuntimeError(
+            "Download Station is not configured — set services.download_station.url "
+            "in config/settings.yaml"
+        )
     return DownloadStationClient(
-        base_url=s.get("url", "http://192.168.0.133:5000"),
+        base_url=s["url"],
         username=s.get("username"),
         password=s.get("password"),
     )
@@ -147,7 +150,7 @@ async def download_station_list() -> str:
                 downloaded = t.get("additional", {}).get("transfer", {}).get("size_downloaded", "0")
                 progress = t.get("additional", {}).get("transfer", {}).get("downloaded_pct", "?")
                 lines.append(f"  • {title}")
-                lines.append(f"    Status: {status}  |  {progress}%  |  {size} bytes downloaded")
+                lines.append(f"    Status: {status}  |  {progress}%  |  {downloaded}/{size} bytes")
 
         if completed:
             lines.append(f"\n── Completed ({len(completed)}) ──")

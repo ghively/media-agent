@@ -32,6 +32,11 @@ class EmbyClient:
 
 def _client() -> EmbyClient:
     s = get_settings().emby
+    if not s.get("url") or not s.get("api_key"):
+        raise RuntimeError(
+            "Emby is not configured — set services.emby.url and api_key "
+            "in config/settings.yaml"
+        )
     return EmbyClient(s["url"], s["api_key"])
 
 

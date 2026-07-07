@@ -1,38 +1,22 @@
-"""Sonarr v3 API client + LangGraph tool definitions."""
+"""Sonarr v3 API tools."""
 import httpx
 from langchain_core.tools import tool
 
 from src.config import get_settings
+from src.tools.arr import ArrClient
+
+# Backwards-compatible alias
+SonarrClient = ArrClient
 
 
-class SonarrClient:
-    """Async client for Sonarr v3 API."""
-
-    def __init__(self, base_url: str, api_key: str, timeout: int = 30):
-        self.base_url = base_url.rstrip("/")
-        self.headers = {"X-Api-Key": api_key}
-        self.timeout = timeout
-
-    async def _get(self, endpoint: str, params: dict | None = None):
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.get(
-                f"{self.base_url}/api/v3{endpoint}", headers=self.headers, params=params
-            )
-            resp.raise_for_status()
-            return resp.json()
-
-    async def _post(self, endpoint: str, json_data: dict):
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(
-                f"{self.base_url}/api/v3{endpoint}", headers=self.headers, json=json_data
-            )
-            resp.raise_for_status()
-            return resp.json()
-
-
-def _client() -> SonarrClient:
+def _client() -> ArrClient:
     s = get_settings().sonarr
-    return SonarrClient(s["url"], s["api_key"])
+    if not s.get("url") or not s.get("api_key"):
+        raise RuntimeError(
+            "Sonarr is not configured — set services.sonarr.url and api_key "
+            "in config/settings.yaml"
+        )
+    return ArrClient(s["url"], s["api_key"])
 
 
 @tool
@@ -50,7 +34,7 @@ async def search_tv(query: str) -> str:
             lines.append(f"  {i}. {title} ({year}) [tvdbId: {tvdb_id}]")
         return "\n".join(lines)
     except httpx.ConnectError:
-        return f"❌ Cannot connect to Sonarr."
+        return "❌ Cannot connect to Sonarr."
     except httpx.TimeoutException:
         return "❌ Sonarr request timed out."
     except Exception as e:
@@ -61,11 +45,12 @@ async def search_tv(query: str) -> str:
 async def add_tv_show(tvdb_id: int, title: str) -> str:
     """Add a TV show to the monitored library by its TVDB ID."""
     try:
+        s = get_settings().sonarr
         body = {
             "tvdbId": tvdb_id,
             "title": title,
-            "qualityProfileId": 1,
-            "rootFolderPath": "/tv/",
+            "qualityProfileId": s.get("quality_profile_id", 1),
+            "rootFolderPath": s.get("root_folder", "/tv/"),
             "monitored": True,
             "addOptions": {"searchForMissingEpisodes": True},
             "seriesType": "standard",
@@ -114,8 +99,13 @@ async def get_tv_queue() -> str:
         for r in records:
             title = r.get("title", "Unknown")
             status = r.get("status", "unknown")
-            progress = r.get("sizeleft", "?")
-            lines.append(f"  • {title} — {status}")
+            size = r.get("size") or 0
+            sizeleft = r.get("sizeleft") or 0
+            if size:
+                pct = (1 - sizeleft / size) * 100
+                lines.append(f"  • {title} — {status} ({pct:.0f}%)")
+            else:
+                lines.append(f"  • {title} — {status}")
         return "\n".join(lines)
     except httpx.ConnectError:
         return "❌ Cannot connect to Sonarr."

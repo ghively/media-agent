@@ -36,6 +36,10 @@ class Settings:
         data: dict = yaml.safe_load(raw) or {}
         self._data: dict = _substitute_env(data)
 
+    def service(self, name: str) -> dict:
+        """Config block for a named service under `services:`. Empty dict if absent."""
+        return self._data.get("services", {}).get(name, {})
+
     @property
     def server(self) -> dict:
         return self._data.get("server", {})
@@ -45,20 +49,36 @@ class Settings:
         return self._data.get("llm", {})
 
     @property
+    def scheduler(self) -> dict:
+        return self._data.get("scheduler", {})
+
+    @property
+    def library(self) -> dict:
+        return self._data.get("library", {})
+
+    @property
     def sonarr(self) -> dict:
-        return self._data.get("services", {}).get("sonarr", {})
+        return self.service("sonarr")
 
     @property
     def radarr(self) -> dict:
-        return self._data.get("services", {}).get("radarr", {})
+        return self.service("radarr")
 
     @property
     def emby(self) -> dict:
-        return self._data.get("services", {}).get("emby", {})
+        return self.service("emby")
 
     @property
     def sabnzbd(self) -> dict:
-        return self._data.get("services", {}).get("sabnzbd", {})
+        return self.service("sabnzbd")
+
+    @property
+    def download_station(self) -> dict:
+        return self.service("download_station")
+
+    @property
+    def youtube(self) -> dict:
+        return self.service("youtube")
 
 
 # Singleton - loaded on first import

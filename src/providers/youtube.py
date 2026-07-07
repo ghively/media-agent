@@ -13,15 +13,33 @@ Required config (config/settings.yaml):
 Note: yt-dlp must be installed on the system ('pip install yt-dlp' or
 'apt install yt-dlp').
 """
+import asyncio
 import json
 import os
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
 from langchain_core.tools import tool
 
 from src.config import get_settings
+
+
+async def _run_ytdlp(args: list[str], timeout: int = 30) -> tuple[int, str, str]:
+    """Run yt-dlp asynchronously. Returns (returncode, stdout, stderr).
+
+    Raises asyncio.TimeoutError if the process exceeds *timeout* seconds and
+    FileNotFoundError if yt-dlp is not installed.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "yt-dlp", *args,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        raise
+    return proc.returncode, stdout.decode(), stderr.decode()
 
 
 # ── Default paths ───────────────────────────────────────────────────────────
@@ -95,47 +113,40 @@ async def youtube_download(url: str, content_type: str = "video") -> str:
             fmt = "bestvideo+bestaudio/best"
             extract_audio = False
 
-        # Build yt-dlp command
+        # Build yt-dlp arguments
         output_template = os.path.join(download_dir, "%(title)s.%(ext)s")
 
-        cmd = [
-            "yt-dlp",
+        args = [
             "--no-playlist",
             "--print", "after_move:filepath",
             "-o", output_template,
         ]
 
         if extract_audio:
-            cmd.extend(["-f", "bestaudio", "--extract-audio", "--audio-format", "mp3"])
+            args.extend(["-f", "bestaudio", "--extract-audio", "--audio-format", "mp3"])
         else:
-            cmd.extend(["-f", fmt, "--merge-output-format", "mkv"])
+            args.extend(["-f", fmt, "--merge-output-format", "mkv"])
 
         # Embed metadata
-        cmd.extend(["--embed-metadata", "--add-metadata"])
+        args.extend(["--embed-metadata", "--add-metadata"])
 
         # Add the URL
-        cmd.append(url)
+        args.append(url)
 
-        # Run yt-dlp
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=600,  # 10 min timeout for downloads
-        )
+        returncode, stdout, stderr = await _run_ytdlp(args, timeout=600)
 
-        if result.returncode != 0:
-            stderr = result.stderr.strip() or "no error output"
-            return f"❌ yt-dlp failed (exit {result.returncode}): {stderr[:500]}"
+        if returncode != 0:
+            stderr = stderr.strip() or "no error output"
+            return f"❌ yt-dlp failed (exit {returncode}): {stderr[:500]}"
 
         # Parse output for the file path
-        output_paths = [l.strip() for l in result.stdout.split("\n") if l.strip()]
+        output_paths = [l.strip() for l in stdout.split("\n") if l.strip()]
         if output_paths:
             return f"✅ Downloaded: {output_paths[-1]}"
 
         return f"✅ Download completed successfully (saved to {download_dir})."
 
-    except subprocess.TimeoutExpired:
+    except asyncio.TimeoutError:
         return "❌ yt-dlp timed out (10 min limit). The download may still be running."
     except FileNotFoundError:
         return "❌ yt-dlp not found. Install it: pip install yt-dlp  or  apt install yt-dlp"
@@ -157,22 +168,21 @@ async def youtube_add_subscription(url: str, content_type: str = "concert") -> s
     """
     try:
         # Resolve the channel URL to get the channel name via yt-dlp
-        cmd = [
-            "yt-dlp",
+        returncode, stdout, _ = await _run_ytdlp([
             "--print", "channel",
             "--print", "channel_url",
+            "--playlist-items", "1",
             "--no-download",
             "--skip-download",
             url,
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        ], timeout=30)
 
-        if result.returncode != 0:
+        if returncode != 0:
             # Fall back to using the URL as-is
             channel_name = url.rstrip("/").split("/")[-1]
             channel_url = url
         else:
-            lines = [l.strip() for l in result.stdout.split("\n") if l.strip()]
+            lines = [l.strip() for l in stdout.split("\n") if l.strip()]
             channel_name = lines[0] if lines else url
             channel_url = lines[1] if len(lines) > 1 else url
 
@@ -203,7 +213,7 @@ async def youtube_add_subscription(url: str, content_type: str = "concert") -> s
             f"Total subscriptions: {len(subs)}"
         )
 
-    except subprocess.TimeoutExpired:
+    except asyncio.TimeoutError:
         return "❌ yt-dlp timed out resolving channel URL."
     except FileNotFoundError:
         return "❌ yt-dlp not found. Install it: pip install yt-dlp"
@@ -235,22 +245,20 @@ async def youtube_check_subscriptions() -> str:
 
             try:
                 # Fetch latest uploads via yt-dlp
-                cmd = [
-                    "yt-dlp",
+                returncode, stdout, _ = await _run_ytdlp([
                     "--flat-playlist",
                     "--playlist-end", "3",
                     "--print", "%(title)s|%(id)s|%(upload_date)s",
                     "--no-download",
                     "--skip-download",
                     url,
-                ]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                ], timeout=30)
 
-                if result.returncode != 0:
+                if returncode != 0:
                     lines.append(f"  ⚠️ {name}: yt-dlp error")
                     continue
 
-                uploads = [l.strip() for l in result.stdout.split("\n") if l.strip()]
+                uploads = [l.strip() for l in stdout.split("\n") if l.strip()]
                 if not uploads:
                     lines.append(f"  ⚠️ {name}: no uploads found")
                     continue
@@ -282,7 +290,7 @@ async def youtube_check_subscriptions() -> str:
                 else:
                     lines.append(f"  ✓ {name}: checked")
 
-            except subprocess.TimeoutExpired:
+            except asyncio.TimeoutError:
                 lines.append(f"  ⚠️ {name}: timed out")
             except Exception as exc:
                 lines.append(f"  ⚠️ {name}: {exc}")
@@ -384,8 +392,7 @@ async def youtube_get_info(url: str) -> str:
         url: YouTube video URL to inspect.
     """
     try:
-        cmd = [
-            "yt-dlp",
+        returncode, stdout, stderr = await _run_ytdlp([
             "--print", "title",
             "--print", "channel",
             "--print", "upload_date",
@@ -396,13 +403,12 @@ async def youtube_get_info(url: str) -> str:
             "--no-download",
             "--skip-download",
             url,
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        ], timeout=30)
 
-        if result.returncode != 0:
-            return f"❌ Failed to get video info: {result.stderr.strip()[:300]}"
+        if returncode != 0:
+            return f"❌ Failed to get video info: {stderr.strip()[:300]}"
 
-        lines = [l.strip() for l in result.stdout.split("\n") if l.strip()]
+        lines = [l.strip() for l in stdout.split("\n") if l.strip()]
 
         # yt-dlp prints each field on its own line
         info = {
@@ -447,7 +453,7 @@ async def youtube_get_info(url: str) -> str:
 
         return "\n".join(output)
 
-    except subprocess.TimeoutExpired:
+    except asyncio.TimeoutError:
         return "❌ yt-dlp timed out fetching video info."
     except FileNotFoundError:
         return "❌ yt-dlp not found. Install it: pip install yt-dlp"
