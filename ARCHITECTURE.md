@@ -1,7 +1,7 @@
 # Media Agent — Architecture
 
 **Version:** 2.0 (as-built)  
-**Date:** 2026-07-05  
+**Last updated:** 2026-07-11  
 **Status:** Reflects actual deployed system
 
 > For the original design vision (including planned features), see [SPEC.md](SPEC.md). This document describes what is **actually built and running**.

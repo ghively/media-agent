@@ -2,7 +2,7 @@
 
 **Target audience:** AI agents and human developers picking up the codebase for the first time.
 
-**Last updated:** 2026-07-05
+**Last updated:** 2026-07-11
 
 ---
 

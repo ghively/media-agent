@@ -293,4 +293,4 @@ This agent is part of a larger homelab:
 
 ---
 
-*Last updated: 2026-07-05. If the code and this file disagree, the code is right — fix this file.*
+*Last updated: 2026-07-11. If the code and this file disagree, the code is right — fix this file.*
