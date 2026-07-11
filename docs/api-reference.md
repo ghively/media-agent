@@ -128,7 +128,7 @@ Each chunk follows the standard OpenAI SSE format:
 GET /dashboard
 ```
 
-**Auth:** None
+**Auth:** None (serves the HTML shell only)
 
 Returns a self-contained HTML page (no external dependencies) showing:
 - Service health cards (Sonarr, Radarr, Emby, SABnzbd)
@@ -139,7 +139,20 @@ Returns a self-contained HTML page (no external dependencies) showing:
 GET /api/dashboard/data
 ```
 
+**Auth:** Bearer token required (if `api_key` is configured)
+
 Returns JSON health/activity data for programmatic access.
+
+```
+POST /api/dashboard/chat
+```
+
+**Auth:** Bearer token required (if `api_key` is configured)
+
+Streams the agent's response (SSE) for a dashboard chat message. Body:
+`{"message": "..."}`. This route drives the full agent, so it is gated behind
+the same `MEDIA_AGENT_API_KEY` as the `/v1` endpoints — set a key (and reach the
+service over loopback or an authenticated proxy) before exposing it.
 
 ---
 
@@ -270,4 +283,4 @@ Error response format follows standard FastAPI error structure:
 
 ---
 
-*Last updated: 2026-07-05*
+*Last updated: 2026-07-11*

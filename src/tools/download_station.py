@@ -10,8 +10,8 @@ Required config (config/settings.yaml):
   services:
     download_station:
       url: "http://<YOUR_NAS_IP>:5000"
-      username: "${DS_USER}"
-      password: "${DS_PASS}"
+      username: "${DS_USERNAME}"
+      password: "${DS_PASSWORD}"
 
 API reference:
   - Login:  /webapi/auth.cgi?api=SYNO.API.Auth&version=6&method=login
@@ -126,7 +126,7 @@ class DownloadStationClient:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             if not await self._login(client):
                 raise DownloadStationError(
-                    "Download Station authentication failed — check DS_USER/DS_PASS."
+                    "Download Station authentication failed — check DS_USERNAME/DS_PASSWORD."
                 )
             try:
                 request_params = dict(params or {})

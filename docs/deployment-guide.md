@@ -1,7 +1,7 @@
 # Media Agent — Deployment Guide
 
 **Version:** 2.0  
-**Date:** 2026-07-05
+**Last updated:** 2026-07-11
 
 ---
 
@@ -79,7 +79,7 @@ curl http://localhost:8088/health
 
 # Tool count
 docker exec media-agent python -c "from src.tools.registry import all_tools; print(f'{len(all_tools)} tools')"
-# → 49 tools
+# → 66 tools
 
 # Dashboard
 # Open http://localhost:8088/dashboard in a browser
@@ -257,4 +257,4 @@ Container data (config, state) is bind-mounted — safe across rebuilds.
 
 ---
 
-*Last updated: 2026-07-05*
+*Last updated: 2026-07-11*

@@ -61,9 +61,9 @@ LangGraph create_react_agent(llm, 66 tools)
 Formatted response → User
 ```
 
-**LLM:** Qwen 2.5 7B via Ollama (local, free, ~35 tok/s).  
+**LLM:** qwen3.5:9b via Ollama (local, free, ~35 tok/s).  
 **Circuit breaker:** Local-first, falls back to hosted API after 3 failures.  
-**Scheduler:** APScheduler daemon thread (health checks, missing searches, cleanup).
+**Scheduler:** AsyncIOScheduler running in the main event loop (health checks, missing searches, cleanup).
 
 ---
 
@@ -88,7 +88,8 @@ src/
     │   ├── health.py        # 3 tools: all_health, disk_space, queue_status
     │   ├── sabnzbd.py       # 6 tools: queue, history, status, pause, resume, add NZB
     │   ├── download_station.py # 6 tools: list, add, pause, resume, info, stats
-    │   └── search.py        # 2 tools: search_media (unified), download_media
+    │   ├── search.py        # 2 tools: search_media (unified), download_media
+    │   └── library_tools.py # 5 tools: library_build_inventory, library_find_duplicates, library_check_naming, library_fix_naming, library_undo_rename
 ├── providers/           # Content-specific providers (subprocess-backed)
 │   ├── base.py          # MediaProvider protocol
 │   ├── youtube.py       # 6 tools via yt-dlp subprocess
@@ -228,9 +229,6 @@ Providers (YouTube, Audible, etc.) use `asyncio.create_subprocess_exec()` to cal
 ### Settings Singleton
 `get_settings()` caches on first call. If you change config, you must restart the container. Don't try to "reload" settings at runtime.
 
-### Download Station Config Gap
-`src/tools/download_station.py` reads config from `get_settings()._data` directly (bypassing the property pattern). Adding a `download_station` property to `Settings` in `config.py` is a one-line fix.
-
 ---
 
 ## Git Workflow
@@ -295,4 +293,4 @@ This agent is part of a larger homelab:
 
 ---
 
-*Last updated: 2026-07-05. If the code and this file disagree, the code is right — fix this file.*
+*Last updated: 2026-07-11. If the code and this file disagree, the code is right — fix this file.*
