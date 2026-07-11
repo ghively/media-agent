@@ -103,11 +103,46 @@ llm:
   hosted_url: ""    # Optional Z.AI/OpenRouter fallback
   hosted_key: ""
   hosted_model: ""
-  temperature: 0
+  temperature: 0        # defaults to 0.2 — low temp keeps tool calls reliable
   timeout: 15
+  num_ctx: 8192         # context window
+  num_predict: 1024     # generation cap
+  keep_alive: "30m"     # keep model resident in VRAM between requests
+  reasoning: false      # disable qwen3 thinking blocks (latency win)
 ```
 
-### 2.3 Conversational Engine (`src/graphs/conversational.py`)
+### 2.3 Deterministic Router (`src/graphs/router.py`) — the fast path
+
+Every user message hits the **deterministic intent router before the LLM**.
+~16 intents ("what's downloading?", "check health", "disk space", "scan the
+library", "add Breaking Bad", ...) are matched with conservative regex
+patterns and answered by calling the tools directly — typically in one
+service round-trip instead of a multi-second LLM ReAct loop. A miss returns
+`None` and the message falls through to the LLM agent.
+
+```
+User message
+     │
+     ▼
+try_route(message, thread_id)          src/graphs/router.py
+     │
+     ├─ pending add/search confirmation? ("yes", "add #2", "the first one")
+     │     → resolve → add_movie / add_tv_show
+     ├─ intent match? ("what's downloading?", "health", "search for X", ...)
+     │     → call tool(s) directly, return formatted string
+     │     → "add X" / "search X" store a numbered result list per thread
+     │       (15-min TTL) so the confirmation flow is deterministic too
+     └─ no match / handler crash → None → LangGraph ReAct agent
+```
+
+Router-handled exchanges are written into the agent's checkpoint via
+`record_exchange()`, so the LLM keeps full conversational context for
+follow-ups either way. The add flow always searches → shows numbered
+matches → waits for confirmation, mirroring the agent's confirmation rule.
+Because the router is plain Python, every routed command keeps working
+even when Ollama is down.
+
+### 2.4 Conversational Engine (`src/graphs/conversational.py`)
 
 Uses **LangGraph's `create_react_agent`** — the prebuilt ReAct (Reason + Act) loop:
 
@@ -132,7 +167,17 @@ The agent loops: LLM decides which tools to call → tools execute → results g
 
 **System prompt** (in `conversational.py`) defines the agent's personality, lists available capabilities, and sets formatting rules (✅ ❌ ⚠️ emoji, concise bullet-point responses, search-before-add pattern).
 
-### 2.4 Tool Layer (`src/tools/` + `src/providers/`)
+**Runtime hardening.** All interfaces call `run_agent()` / `stream_agent()` instead of invoking the compiled graph directly. These helpers:
+
+- always pass a `thread_id` (mandatory with the MemorySaver checkpointer);
+- enforce `RECURSION_LIMIT = 16` on the ReAct loop and map `GraphRecursionError` to a friendly "break it into smaller pieces" message;
+- trim thread history to the last 40 messages (`_trim_history`, aligned to a HumanMessage boundary so tool calls are never orphaned) before every model call, so persistent threads never overflow `num_ctx`;
+- drive the circuit breaker: two graphs are compiled against the same checkpointer — local-primary (with per-call hosted fallback) and hosted-primary — and `pick_agent()` selects one per request from the breaker state, so an OPEN breaker skips a dead Ollama's timeouts entirely;
+- never raise: LLM failures come back as friendly ❌ strings, and each failure/success updates the breaker.
+
+Stateless OpenAI-API requests use a throwaway per-request thread that is deleted afterwards (`forget_thread`) so MemorySaver doesn't leak.
+
+### 2.5 Tool Layer (`src/tools/` + `src/providers/`)
 
 **Design principle: task-oriented, not endpoint-oriented.** Each tool does one useful thing at the task level ("search for a show"), not the API level ("POST /api/v3/series").
 
@@ -177,7 +222,7 @@ all_tools = (
 )
 ```
 
-### 2.5 Provider Layer (`src/providers/`)
+### 2.6 Provider Layer (`src/providers/`)
 
 Providers handle content types that need **more than an API call** — they wrap external tools (yt-dlp, audible-cli, bandcamp-downloader, internetarchive) and manage file-level operations.
 
@@ -188,7 +233,7 @@ Providers handle content types that need **more than an API call** — they wrap
 | `audible.py` | 5 | audible-cli (subprocess) | Authenticated extraction |
 | `rom.py` | 4 | internetarchive (subprocess) | Direct download + DAT verify |
 
-### 2.6 Library Management (`src/library/`)
+### 2.7 Library Management (`src/library/`)
 
 | Module | Functions | Purpose |
 |---|---|---|
@@ -200,7 +245,7 @@ Naming conventions:
 - **TV:** `/Show/Season ##/Show - s##e## - Title.ext`
 - **Music:** `/Artist/Album/Track ## - Title.ext`
 
-### 2.7 Scheduler (`src/scheduler.py`)
+### 2.8 Scheduler (`src/scheduler.py`)
 
 APScheduler's `AsyncIOScheduler` runs on the FastAPI server's event loop (started on app startup). Predefined jobs:
 
@@ -210,7 +255,7 @@ APScheduler's `AsyncIOScheduler` runs on the FastAPI server's event loop (starte
 | Missing episodes | Every 12 hours | `search_missing_episodes()` + `search_missing_movies()` |
 | Daily cleanup | 3:00 AM daily | Remove `.tmp`, `.part`, incomplete files |
 
-### 2.8 Interfaces (`src/interfaces/`)
+### 2.9 Interfaces (`src/interfaces/`)
 
 #### OpenAI-Compatible API (`openai_api.py`)
 
@@ -244,24 +289,35 @@ Interactive REPL using `rich` for formatted output. Three entry points: `cli_rep
 User: "add Breaking Bad"
   │
   ▼
-POST /v1/chat/completions
+POST /v1/chat/completions (or dashboard chat / CLI)
   │
   ▼
-_get_agent() → create_react_agent(llm, all_tools)
+try_route("add breaking bad", thread_id)      ← deterministic fast path
+  │  matches the add intent:
+  │  1. Sonarr + Radarr lookups run concurrently
+  │  2. Numbered matches shown, stored as pending selection (15-min TTL)
+  │     "Found 3 matches... Say 'yes' for #1, or 'add #2'."
+  ▼
+User: "yes"
   │
   ▼
-LangGraph ReAct loop:
+try_route("yes", thread_id) → resolves pending → add_tv_show(81189)
+  │  "✅ Added 'Breaking Bad'. Episode search started..."
+  │  (exchange recorded into the agent thread via record_exchange)
+  ▼
+Response → user (no LLM call was needed)
+
+Anything the router doesn't match ("why is everything downloading so
+slowly?") falls through to run_agent()/stream_agent():
+  │
+  ▼
+LangGraph ReAct loop (recursion-limited, history-trimmed):
   1. LLM sees message + tool list
-  2. LLM calls search_tv("Breaking Bad")
-     → SonarrClient.search_series()
-     → "Found: Breaking Bad (2008) [tvdbId: 81189]"
-  3. LLM calls add_tv_show(tvdb_id=81189, title="Breaking Bad")
-     → SonarrClient.add_series()
-     → "✅ Added 'Breaking Bad'. Searching for episodes..."
-  4. LLM generates final response
+  2. LLM calls tools until it can answer
+  3. LLM generates final response
   │
   ▼
-OpenAI-formatted JSON response → user
+Response → user
 ```
 
 ### 3.2 Proactive Monitoring Flow

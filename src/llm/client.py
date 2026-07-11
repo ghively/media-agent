@@ -23,16 +23,32 @@ class MediaLLM:
         fallback_url: str = "",
         fallback_key: str = "",
         fallback_model: str = "",
-        temperature: float = 0.7,
+        temperature: float = 0.2,
+        num_ctx: int = 8192,
+        num_predict: int = 1024,
+        keep_alive: str = "30m",
+        reasoning: bool = False,
     ):
         from langchain_ollama import ChatOllama
 
-        self.local_llm = ChatOllama(
+        # keep_alive keeps the model resident in VRAM between requests —
+        # without it Ollama may unload after 5m and every chat pays a
+        # multi-second reload. num_predict caps runaway generations.
+        # reasoning=False disables qwen3-style thinking blocks (major
+        # latency win for tool-calling turns); dropped if the installed
+        # langchain-ollama predates the parameter.
+        ollama_kwargs = dict(
             base_url=ollama_url,
             model=ollama_model,
             temperature=temperature,
-            num_ctx=8192,
+            num_ctx=num_ctx,
+            num_predict=num_predict,
+            keep_alive=keep_alive,
         )
+        try:
+            self.local_llm = ChatOllama(**ollama_kwargs, reasoning=reasoning)
+        except Exception:
+            self.local_llm = ChatOllama(**ollama_kwargs)
         self.fallback_llm = None
         if fallback_url and fallback_key:
             from langchain_openai import ChatOpenAI
@@ -82,7 +98,11 @@ class MediaLLM:
 
 
 def create_llm() -> MediaLLM:
-    """Create MediaLLM from settings."""
+    """Create MediaLLM from settings.
+
+    Temperature defaults low (0.2): a 9B model picking among ~66 tools needs
+    determinism far more than prose flair. Override via ``llm.temperature``.
+    """
     from src.config import get_settings
     llm_cfg = get_settings().llm
     return MediaLLM(
@@ -91,5 +111,9 @@ def create_llm() -> MediaLLM:
         fallback_url=llm_cfg.get("hosted_url", ""),
         fallback_key=llm_cfg.get("hosted_key", ""),
         fallback_model=llm_cfg.get("hosted_model", ""),
-        temperature=llm_cfg.get("temperature", 0.7),
+        temperature=llm_cfg.get("temperature", 0.2),
+        num_ctx=llm_cfg.get("num_ctx", 8192),
+        num_predict=llm_cfg.get("num_predict", 1024),
+        keep_alive=llm_cfg.get("keep_alive", "30m"),
+        reasoning=llm_cfg.get("reasoning", False),
     )
