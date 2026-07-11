@@ -114,11 +114,13 @@ llm:
 ### 2.3 Deterministic Router (`src/graphs/router.py`) — the fast path
 
 Every user message hits the **deterministic intent router before the LLM**.
-~16 intents ("what's downloading?", "check health", "disk space", "scan the
-library", "add Breaking Bad", ...) are matched with conservative regex
-patterns and answered by calling the tools directly — typically in one
-service round-trip instead of a multi-second LLM ReAct loop. A miss returns
-`None` and the message falls through to the LLM agent.
+~45 intent groups spanning every tool domain — TV/movies, health/disk/queues,
+Emby, SABnzbd, Download Station, **ROMs & emulation platforms**, **YouTube**,
+**Audible audiobooks**, **Bandcamp**, and **library maintenance** — are
+matched with conservative regex patterns and answered by calling the tools
+directly, typically in one service round-trip instead of a multi-second LLM
+ReAct loop. A miss returns `None` and the message falls through to the LLM
+agent.
 
 ```
 User message
@@ -126,21 +128,54 @@ User message
      ▼
 try_route(message, thread_id)          src/graphs/router.py
      │
-     ├─ pending add/search confirmation? ("yes", "add #2", "the first one")
-     │     → resolve → add_movie / add_tv_show
-     ├─ intent match? ("what's downloading?", "health", "search for X", ...)
+     ├─ 1. pending confirmation? ("yes", "add #2", "the first one", "no")
+     │     → media pick → add_movie / add_tv_show
+     │     → ROM pick   → rom_download(identifier, platform)
+     │     → yes/no action → run it (bulk download, file rename, ...)
+     ├─ 2. media URL? (checked before the pattern table)
+     │     → YouTube link + download/subscribe/info verb → yt tools
+     │       (bare link: show info, offer to download — pending yes/no)
+     │     → Bandcamp link → bandcamp_download (bare link asks first)
+     │     → magnet / .torrent → download_station_add (bare link asks first)
+     │     → .nzb → sabnzbd_add_nzb (category inferred: tv vs movies)
+     ├─ 3. intent match? ("what's downloading?", "download snes roms",
+     │     "list my audiobooks", "check youtube subscriptions",
+     │     "fix naming in /media/tv", "verify my snes roms", ...)
      │     → call tool(s) directly, return formatted string
-     │     → "add X" / "search X" store a numbered result list per thread
+     │     → search/add/ROM intents store numbered results per thread
      │       (15-min TTL) so the confirmation flow is deterministic too
      └─ no match / handler crash → None → LangGraph ReAct agent
 ```
 
+Intent domains (see `_INTENTS` in router.py — order matters, specific first):
+
+| Domain | Examples | Tools |
+|---|---|---|
+| Status | "what's downloading?", "is everything healthy?", "disk space", "download speed" | health, sabnzbd_status |
+| TV/Movies | "add Breaking Bad", "list my shows", "missing episodes", "tv queue", "quality profiles" | sonarr/radarr |
+| Emby | "do I have The Matrix?", "recently added", "scan the library", "list libraries" | emby |
+| ROMs / emulation | "download snes roms", "list my game collection", "verify my super nintendo roms" | rom (Internet Archive), platform aliases → slugs (super nintendo → snes, playstation → psx, ...) |
+| YouTube | paste a link (info + offer), "download <url> as music", "subscribe to <url>", "check subscriptions" | youtube |
+| Audiobooks | "list my audiobooks", "download audiobook <ASIN>", "sync audible", "check audible auth" | audible |
+| Music | "download <bandcamp url>", "download my bandcamp collection" (confirms first) | bandcamp |
+| Library | "find duplicates in /media/movies", "check/fix naming in /media/tv" (fix confirms first, undo log), "inventory /media/tv" | library_tools |
+| Downloads | "pause downloads", "torrents", "usenet queue", magnet/.nzb/.torrent URLs | sabnzbd, download_station |
+
+Hardening details:
+
+- Normalization **preserves case** — URLs, ASINs, file paths, and channel
+  names are case-sensitive payloads; patterns match case-insensitively.
+- Deictic guard: "grab it" / "add the first one" with **no** router-pending
+  selection falls through to the LLM (it refers to LLM-shown results).
+- Anything bulky or irreversible (ROM sets — sizes shown, Bandcamp
+  collection sync, file renames) requires a yes/no confirmation first.
+- A non-ASIN "download audiobook <title>" falls through to the LLM, which
+  looks up the ASIN in the Audible library.
+
 Router-handled exchanges are written into the agent's checkpoint via
 `record_exchange()`, so the LLM keeps full conversational context for
-follow-ups either way. The add flow always searches → shows numbered
-matches → waits for confirmation, mirroring the agent's confirmation rule.
-Because the router is plain Python, every routed command keeps working
-even when Ollama is down.
+follow-ups either way. Because the router is plain Python, every routed
+command keeps working even when Ollama is down.
 
 ### 2.4 Conversational Engine (`src/graphs/conversational.py`)
 
