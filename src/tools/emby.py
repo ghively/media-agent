@@ -85,8 +85,9 @@ async def emby_recent(limit: int = 20) -> str:
             items = result
         if not items:
             return "No recently added items."
+        items = items[:limit]
         lines = [f"Recently added ({len(items)}):\n"]
-        for item in items[:20]:
+        for item in items:
             name = item.get("Name", "Unknown")
             itype = item.get("Type", "")
             lines.append(f"  • {name} [{itype}]")

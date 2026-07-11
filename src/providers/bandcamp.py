@@ -1,12 +1,8 @@
 """Bandcamp download provider — wraps bandcamp-downloader (bandcamp-dl)."""
 import asyncio
-import json
 import os
-import subprocess
 from pathlib import Path
 from langchain_core.tools import tool
-
-from src.engine.types import MediaItem, AcquireResult, JobStatus
 
 
 # Import emby_scan for auto-triggering after downloads
@@ -23,7 +19,7 @@ async def bandcamp_download(url: str) -> str:
 
         proc = await asyncio.create_subprocess_exec(
             "bandcamp-dl", "--template", "{artist}/{album}/{track_num} - {title}",
-            "--directory", download_dir, url,
+            "--directory", download_dir, "--", url,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)

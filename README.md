@@ -1,6 +1,6 @@
 # Media Agent
 
-A containerized, conversational AI agent for managing a personal media ecosystem — TV shows, movies, music, audiobooks, YouTube content, and classic game ROMs. Powered by a local LLM (Qwen 2.5 7B via Ollama) with **66 tools** across 11 categories.
+A containerized, conversational AI agent for managing a personal media ecosystem — TV shows, movies, music, audiobooks, YouTube content, and classic game ROMs. Powered by a local LLM (qwen3.5:9b via Ollama) with **66 tools** across 12 categories.
 
 Ask it things like *"what's new on my server?"*, *"add The Matrix in 1080p"*, or *"what's downloading?"* — it searches, adds, monitors, and scans your library automatically.
 
@@ -196,13 +196,14 @@ LangGraph ReAct Agent (LLM + 66 tools)
     ├── YouTube tools (6)   → Video download + subscriptions
     ├── Bandcamp tools (2)  → Music downloads
     ├── Audible tools (5)   → Audiobook management
-    └── ROM tools (4)       → Retro game collections
+    ├── ROM tools (4)       → Retro game collections
+    └── Library tools (5)   → Inventory, duplicates, naming
     │
     ▼
 Your media services (Sonarr, Radarr, Emby, SABnzbd...)
 ```
 
-The agent uses **LangGraph's `create_react_agent`** — the LLM (Qwen 2.5 7B via local Ollama) decides which tools to call, executes them, sees results, and loops until it can answer. All 66 tools are registered in a single registry and available simultaneously.
+The agent uses **LangGraph's `create_react_agent`** — the LLM (qwen3.5:9b via local Ollama) decides which tools to call, executes them, sees results, and loops until it can answer. All 66 tools are registered in a single registry and available simultaneously.
 
 **Key design points:**
 - **Local-first:** Uses local Ollama for all inference. Zero API costs. Optional cloud LLM fallback.
@@ -231,7 +232,7 @@ If you're an AI agent being asked to deploy this, start with `CLAUDE.md` — it 
 ### Quick deployment checklist
 
 1. ✅ Docker + Docker Compose installed
-2. ✅ Ollama running with `qwen2.5:7b` pulled (`ollama pull qwen2.5:7b`)
+2. ✅ Ollama running with `qwen3.5:9b` pulled (`ollama pull qwen3.5:9b`)
 3. ✅ Media services running (Sonarr, Radarr, Emby at minimum)
 4. ✅ `.env` populated with real URLs and API keys
 5. ✅ `settings.yaml` configured with your quality profiles and storage paths
@@ -255,6 +256,7 @@ If you're an AI agent being asked to deploy this, start with `CLAUDE.md` — it 
 | **Bandcamp** | 2 | Download individual albums or entire purchased collection |
 | **Audible** | 5 | List library, download books, sync new titles, set up/check auth |
 | **ROMs** | 4 | Search Internet Archive collections, download ROM sets, verify with DAT files, browse by platform |
+| **Library** | 5 | Build filesystem inventory, find duplicates, check and fix naming conventions, undo renames |
 
 ---
 
@@ -273,7 +275,7 @@ The pattern is:
 
 - **Python 3.12** + **LangGraph** (ReAct agent) + **LangChain** (tool protocol)
 - **FastAPI** (API server + dashboard)
-- **Ollama** (local LLM inference — Qwen 2.5 7B)
+- **Ollama** (local LLM inference — qwen3.5:9b)
 - **httpx** (async HTTP client for all service APIs)
 - **APScheduler** (proactive monitoring — health checks, missing searches, cleanup)
 - **Docker** (single container deployment)

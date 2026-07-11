@@ -109,43 +109,13 @@ async def _search_download_station(query: str, limit: int) -> list[dict]:
     """Search Download Station for matching torrent/download tasks."""
     try:
         ds = get_settings().download_station
-        base_url = ds.get("url", "http://<YOUR_NAS_IP>:5000")
-        username = ds.get("username")
-        password = ds.get("password")
-
-        if not username or not password:
+        if not ds.get("username") or not ds.get("password"):
             return []  # No auth configured, skip DS search
 
-        # Login first
-        async with httpx.AsyncClient(timeout=15) as client:
-            login_url = (
-                f"{base_url}/webapi/auth.cgi"
-                f"?api=SYNO.API.Auth&version=6&method=login"
-                f"&account={username}&passwd={password}"
-                f"&session=DownloadStation&format=cookie"
-            )
-            login_resp = await client.get(login_url)
-            login_data = login_resp.json()
-            sid = login_data.get("data", {}).get("sid") if login_data.get("success") else None
-
-            if not sid:
-                return []
-
-            # List all tasks
-            task_params = {
-                "api": "SYNO.DownloadStation.Task",
-                "version": 3,
-                "method": "list",
-                "additional": "detail",
-                "_sid": sid,
-            }
-            task_resp = await client.get(
-                f"{base_url}/webapi/DownloadStation/task.cgi",
-                params=task_params,
-            )
-            task_resp.raise_for_status()
-            task_data = task_resp.json()
-
+        # Reuse the hardened Download Station client: credentials go in the
+        # POST body (never the URL query string) and it logs in/out per call.
+        from src.tools.download_station import _client
+        task_data = await _client()._task_api("list", additional="detail")
     except Exception:
         return []
 

@@ -2,11 +2,8 @@
 import asyncio
 import json
 import os
-import subprocess
 from pathlib import Path
 from langchain_core.tools import tool
-
-from src.engine.types import MediaItem, AcquireResult, JobStatus
 
 
 # Import emby_scan for auto-triggering after downloads
@@ -128,6 +125,9 @@ async def audible_download(asin: str) -> str:
 async def audible_download_new() -> str:
     """Download audiobooks added to your library since the last sync."""
     try:
+        if not AUDIBLE_AUTH_FILE.exists():
+            return "❌ Audible not authenticated. Run `audible_setup_auth` first."
+
         # Get library
         proc = await asyncio.create_subprocess_exec(
             "audible", "library", "list",
@@ -141,8 +141,11 @@ async def audible_download_new() -> str:
             return f"❌ Failed to list library: {stderr.decode()[:500]}"
 
         books = json.loads(stdout)
-        # Track downloaded ASINs
+        # Track downloaded ASINs. Ensure the state dir exists first, otherwise
+        # write_text() below would raise *after* downloading and nothing would
+        # be recorded — every book would re-download on the next run.
         state_file = Path("/state/audible_downloaded.json")
+        state_file.parent.mkdir(parents=True, exist_ok=True)
         downloaded = set()
         if state_file.exists():
             downloaded = set(json.loads(state_file.read_text()))

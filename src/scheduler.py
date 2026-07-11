@@ -206,17 +206,8 @@ class MediaScheduler:
 
 
 def _trigger_summary(trigger: Any) -> str:
-    """Human-readable trigger description."""
-    if hasattr(trigger, "fields"):
-        # CronTrigger
-        try:
-            return trigger.__str__()
-        except Exception:
-            return repr(trigger)
-    if hasattr(trigger, "interval"):
-        # IntervalTrigger
-        try:
-            return trigger.__str__()
-        except Exception:
-            return repr(trigger)
-    return repr(trigger)
+    """Human-readable trigger description (works for Cron and Interval triggers)."""
+    try:
+        return str(trigger)
+    except Exception:
+        return repr(trigger)
