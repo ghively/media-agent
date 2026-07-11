@@ -11,17 +11,6 @@ from src.config import get_settings
 
 app = FastAPI(title="Media Agent", version="0.1.0")
 
-# Build agent on startup (not module-level to avoid import errors in tests)
-_agent = None
-
-
-def _get_agent():
-    global _agent
-    if _agent is None:
-        from src.graphs.conversational import create_agent
-        _agent = create_agent()
-    return _agent
-
 
 class ChatMessage(BaseModel):
     role: str
@@ -65,6 +54,31 @@ async def list_models(authorization: str | None = Header(None)):
     }
 
 
+async def _answer_stateless(messages: list[ChatMessage]) -> str:
+    """Answer an OpenAI-style request (client resends full history each call).
+
+    The last user message goes router-first (deterministic fast path); on a
+    miss, the whole history is replayed into a throwaway agent thread, which
+    is deleted afterwards so per-request threads don't leak in MemorySaver.
+    """
+    from src.graphs.conversational import forget_thread, run_agent
+    from src.graphs.router import try_route
+
+    last_user = next((m.content for m in reversed(messages) if m.role == "user"), "")
+    thread_id = f"api-{uuid.uuid4().hex}"
+    try:
+        if last_user:
+            routed = await try_route(last_user, thread_id)
+            if routed is not None:
+                return routed
+        return await run_agent(
+            "", thread_id,
+            messages=[{"role": m.role, "content": m.content} for m in messages],
+        )
+    finally:
+        forget_thread(thread_id)
+
+
 @app.post("/v1/chat/completions")
 async def chat_completions(
     request: ChatCompletionRequest,
@@ -78,11 +92,7 @@ async def chat_completions(
             media_type="text/event-stream",
         )
     else:
-        agent = _get_agent()
-        result = await agent.ainvoke({
-            "messages": [{"role": m.role, "content": m.content} for m in request.messages]
-        })
-        content = result["messages"][-1].content
+        content = await _answer_stateless(request.messages)
         return {
             "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
             "object": "chat.completion",
@@ -101,9 +111,11 @@ async def chat_completions(
 
 async def _stream_response(messages: list[ChatMessage]):
     """Stream agent response as OpenAI-compatible SSE chunks."""
+    from src.graphs.conversational import forget_thread, stream_agent
+    from src.graphs.router import try_route
+
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
     created = int(time.time())
-    agent = _get_agent()
 
     def make_chunk(content: str = "", finish_reason: str | None = None) -> str:
         payload = {
@@ -124,18 +136,22 @@ async def _stream_response(messages: list[ChatMessage]):
     # Initial chunk
     yield make_chunk()
 
-    # Stream tokens from agent
+    last_user = next((m.content for m in reversed(messages) if m.role == "user"), "")
+    thread_id = f"api-{uuid.uuid4().hex}"
     try:
-        async for event in agent.astream_events(
-            {"messages": [{"role": m.role, "content": m.content} for m in messages]},
-            version="v2",
-        ):
-            if event["event"] == "on_chat_model_stream":
-                chunk = event["data"].get("chunk")
-                if chunk and hasattr(chunk, "content") and chunk.content:
-                    yield make_chunk(content=chunk.content)
+        routed = await try_route(last_user, thread_id) if last_user else None
+        if routed is not None:
+            yield make_chunk(content=routed)
+        else:
+            async for text in stream_agent(
+                "", thread_id,
+                messages=[{"role": m.role, "content": m.content} for m in messages],
+            ):
+                yield make_chunk(content=text)
     except Exception as e:
         yield make_chunk(content=f"\n\n[Error: {e}]")
+    finally:
+        forget_thread(thread_id)
 
     # Final chunk
     yield make_chunk(finish_reason="stop")

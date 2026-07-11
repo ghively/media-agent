@@ -12,8 +12,12 @@ llm:
   hosted_url: ""
   hosted_key: ""
   hosted_model: ""
-  temperature: 0
+  temperature: 0        # low temp = reliable tool calls (default 0.2 if omitted)
   timeout: 15
+  num_ctx: 8192         # context window tokens
+  num_predict: 1024     # max tokens per generation (caps runaway output)
+  keep_alive: "30m"     # keep the model loaded in VRAM between requests
+  reasoning: false      # disable qwen3 thinking blocks for faster replies
 
 services:
   sonarr:
