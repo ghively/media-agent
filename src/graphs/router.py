@@ -705,6 +705,35 @@ async def _h_rom_download(match, thread_id):
     return await _rom_search_and_pend(match.group("query").strip(), thread_id, auto_add=True)
 
 
+def _platform_arg(match) -> dict:
+    """Optional platform group → tool args ({} when absent/unknown)."""
+    raw = (match.groupdict().get("platform") or "").strip()
+    if not raw:
+        return {}
+    slug, _ = _extract_platform(raw)
+    return {"platform": slug} if slug else {}
+
+
+async def _h_rom_scan(match, thread_id):
+    from src.tools.rom_tools import rom_scan_library
+    return await rom_scan_library.ainvoke(_platform_arg(match))
+
+
+async def _h_rom_problems(match, thread_id):
+    from src.tools.rom_tools import rom_check_problems
+    return await rom_check_problems.ainvoke(_platform_arg(match))
+
+
+async def _h_rom_dupes(match, thread_id):
+    from src.tools.rom_tools import rom_find_duplicates
+    return await rom_find_duplicates.ainvoke(_platform_arg(match))
+
+
+async def _h_rom_inspect(match, thread_id):
+    from src.tools.rom_tools import rom_inspect
+    return await rom_inspect.ainvoke({"path": match.group("path")})
+
+
 # ── YouTube handlers (no-URL forms) ──────────────────────────────────────────
 
 async def _h_yt_list_subs(match, thread_id):
@@ -1027,6 +1056,30 @@ _INTENTS: list[tuple[str, list[re.Pattern], object]] = [
         r"^what (?:roms|games) do i have$",
         r"^my (?:roms|games)$",
     ), _h_rom_collection),
+    ("rom_inspect", _rx(
+        r"^(?:inspect|examine) (?:the )?(?:rom )?(?P<path>/\S+)$",
+        r"^rom (?:info|metadata|details) (?:for |on )?(?P<path>/\S+)$",
+        r"^get (?:the )?metadata (?:for|of|on) (?:the )?(?:rom )?(?P<path>/\S+)$",
+        r"^what is (?P<path>/\S+\.(?:nes|sfc|smc|gb|gbc|gba|n64|z64|v64|nds|md|gen|sms|gg|pce|a26|lnx|zip|bin|cue|iso))$",
+    ), _h_rom_inspect),
+    ("rom_dupes", _rx(
+        r"^(?:find|check for|look for) duplicate (?:(?P<platform>[\w ]+?) )?(?:roms|games)$",
+        r"^dedupe? (?:my |the )?(?:(?P<platform>[\w ]+?) )?roms?$",
+        r"^rom (?:duplicates|dedupe?)$",
+        r"^(?:are there |do i have )?duplicate roms$",
+    ), _h_rom_dupes),
+    ("rom_problems", _rx(
+        r"^(?:check|debug) (?:my |the )?(?:(?P<platform>[\w ]+?) )?roms?(?: (?:library |collection )?for (?:problems|issues|errors))?$",
+        r"^(?:any |find )?(?:bad|broken|corrupt|damaged) roms?$",
+        r"^rom (?:problems|issues|debug|health)$",
+        r"^debug (?:my |the )?rom (?:library|collection)$",
+    ), _h_rom_problems),
+    ("rom_scan", _rx(
+        r"^(?:deep )?scan (?:my |the )?(?:(?P<platform>[\w ]+?) )?roms?(?: library| collection| folder)?$",
+        r"^rom (?:scan|inventory|report)$",
+        r"^(?:identify|analyze|analyse|parse) (?:my |the )?roms?(?: library| collection)?$",
+        r"^what (?:types? of |kinds? of )?roms do i have$",
+    ), _h_rom_scan),
     ("rom_verify", _rx(
         r"^verify (?:my )?(?P<platform>[\w ]+?) roms?$",
         r"^verify roms?(?: (?:for|against dats?) ?(?P<platform>[\w ]+))?$",

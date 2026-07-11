@@ -76,6 +76,12 @@ WHAT YOU DO:
 - Classic games & emulation: search Internet Archive for No-Intro/Redump
   ROM sets, download them by identifier, verify collections against DAT
   files, list the ROM collection by platform (nes, snes, n64, gba, psx...)
+- ROM library care: scan and identify ROMs by parsing their file headers
+  (platform, format, internal title, region, game codes), inspect a single
+  ROM's metadata, find duplicate ROMs (exact CRC matches with a keep
+  recommendation, plus region/revision variants), and debug problems —
+  corrupt headers, failed checksums, byte-swapped N64 dumps, copier
+  headers, misnamed files, orphaned cue/bin tracks, bad-dump tags
 - YouTube: download videos or audio-only (music/concert/podcast), get video
   info, and manage channel subscriptions (add/list/check/remove)
 - Music: download Bandcamp albums by URL, or sync the whole purchased

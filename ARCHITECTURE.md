@@ -22,7 +22,7 @@ Media Agent is a single Docker container running on **your-gpu-host** (NVIDIA RT
 │  │                                                              │   │
 │  │  ┌────────────┐  ┌──────────────┐  ┌──────────────────┐     │   │
 │  │  │  FastAPI    │  │  APScheduler │  │  LangGraph ReAct  │     │   │
-│  │  │  Server     │  │  (daemon     │  │  Agent (66 tools) │     │   │
+│  │  │  Server     │  │  (daemon     │  │  Agent (70 tools) │     │   │
 │  │  │  :8088      │  │   thread)    │  │                   │     │   │
 │  │  │             │  │              │  │  ┌─────────────┐ │     │   │
 │  │  │ • /v1/chat  │  │ • health 30m │  │  │   Qwen 3.5   │ │     │   │
@@ -155,6 +155,7 @@ Intent domains (see `_INTENTS` in router.py — order matters, specific first):
 | TV/Movies | "add Breaking Bad", "list my shows", "missing episodes", "tv queue", "quality profiles" | sonarr/radarr |
 | Emby | "do I have The Matrix?", "recently added", "scan the library", "list libraries" | emby |
 | ROMs / emulation | "download snes roms", "list my game collection", "verify my super nintendo roms" | rom (Internet Archive), platform aliases → slugs (super nintendo → snes, playstation → psx, ...) |
+| ROM library care | "scan my roms", "debug my roms", "find duplicate snes roms", "get metadata for /media/roms/x.sfc" | rom_tools → rom_analyzer: header parsing (title/region/checksums), CRC32 dedup incl. inside zips, corrupt/byte-swapped/copier-header/cue-bin checks |
 | YouTube | paste a link (info + offer), "download <url> as music", "subscribe to <url>", "check subscriptions" | youtube |
 | Audiobooks | "list my audiobooks", "download audiobook <ASIN>", "sync audible", "check audible auth" | audible |
 | Music | "download <bandcamp url>", "download my bandcamp collection" (confirms first) | bandcamp |
@@ -483,7 +484,7 @@ All API keys in **password manager **, injected via `.env` → Docker `env_file`
 
 ### Why `create_react_agent` instead of custom StateGraph
 
-The ReAct loop handles the tool-call cycle automatically. For a tool-heavy agent with 66 tools, this is simpler and more reliable than hand-wiring a custom graph. The system prompt constrains behavior sufficiently.
+The ReAct loop handles the tool-call cycle automatically. For a tool-heavy agent with 70 tools, this is simpler and more reliable than hand-wiring a custom graph. The system prompt constrains behavior sufficiently.
 
 ### Why strings instead of structured returns
 
