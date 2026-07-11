@@ -721,6 +721,10 @@ _DASHBOARD_HTML = r"""
       <button class="action-btn" onclick="quickAction('check disk space')">Disk Space</button>
       <button class="action-btn" onclick="quickAction('check all queues')">All Queues</button>
       <button class="action-btn" onclick="quickAction('list download station tasks')">Torrents</button>
+      <button class="action-btn" onclick="quickAction('list my rom collection')">Game Collection</button>
+      <button class="action-btn" onclick="quickAction('list my youtube subscriptions')">YouTube Subs</button>
+      <button class="action-btn" onclick="quickAction('check youtube subscriptions')">New Uploads</button>
+      <button class="action-btn" onclick="quickAction('list my audiobooks')">Audiobooks</button>
     </div>
   </div>
 

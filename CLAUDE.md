@@ -51,7 +51,11 @@ User Input (CLI/API/Dashboard)
     │
     ▼
 Deterministic router (src/graphs/router.py)   ← tried FIRST, no LLM
-    │ regex intents: queue/health/disk/search/add/scan/pause/...
+    │ ~45 intent groups across ALL domains: queue/health/disk/search/add,
+    │ ROMs & emulation, YouTube (URLs + subscriptions), Audible, Bandcamp,
+    │ library maintenance, SABnzbd/DS, quality profiles, Emby search
+    │ media URLs dispatch by type: youtube/bandcamp/magnet/.torrent/.nzb
+    │ bulk/irreversible ops (ROM sets, renames, collection sync) confirm first
     │ handled? → tool call(s) → instant reply (recorded into agent memory)
     │ no match ▼
 LangGraph create_react_agent(llm, 66 tools)   via run_agent()/stream_agent()
