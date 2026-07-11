@@ -1592,4 +1592,4 @@ To activate any of these, add the import to `src/tools/registry.py` and include 
 
 ---
 
-*Generated from media-agent source files. Last updated: 2026-07-05*
+*Generated from media-agent source files. Last updated: 2026-07-11*

@@ -1,110 +1,106 @@
 # Media Agent — Code Audit Findings
 
-Full-tree audit of `src/` (~5,000 lines), 2026-07-05. Each finding was verified
-against the actual code (file:line quoted). **21 of 23 findings are fixed**; the
-two remaining are low-risk (documented below).
+Full-tree audit of the repository (~5,400 lines), **2026-07-11**. Each finding
+was verified against the actual code (file:line quoted) and, where a fix was
+applied, re-verified after the change.
+
+> This record supersedes the original 2026-07-05 audit. The earlier snapshot is
+> retired: several of its "won't fix" decisions (notably the intentionally-open
+> dashboard) were revisited and hardened in this pass. The state below is
+> current.
 
 ## Severity summary
 
 | # | Severity | Finding | Location | Status |
 |---|----------|---------|----------|--------|
-| 1 | 🔴 High | Dashboard API routes have **no auth** — full agent control unauthenticated on the LAN | `dashboard.py` | ⚠️ Disabled by owner |
-| 2 | 🔴 High | `youtube.py` used blocking `subprocess.run` in 4 async tools — froze the event loop | `youtube.py` | ✅ Fixed |
-| 3 | 🔴 High | `library_find_duplicates` was dead — parsed a summary string, always "0 files" | `scanner.py` | ✅ Fixed |
-| 4 | 🔴 High | All `library_*` tools did blocking fs walks / MD5 hashing in the async loop | `library_tools.py` | ✅ Fixed |
-| 5 | 🟠 Med | Circuit breaker built but never wired — no Ollama→hosted failover | `conversational.py` | ✅ Fixed |
-| 6 | 🟠 Med | Download Station SID session leak — logged in every call, never logged out | `download_station.py` | ✅ Fixed |
-| 7 | 🟠 Med | Download Station auth failure reported as "no tasks" | `download_station.py` | ✅ Fixed |
-| 8 | 🟠 Med | Download Station credentials in URL query, un-encoded | `download_station.py` | ✅ Fixed |
-| 9 | 🟠 Med | *arr history & calendar omitted `includeSeries`/`includeMovie` → titles "Unknown" | `sonarr.py`, `radarr.py` | ✅ Fixed |
-| 10 | 🟠 Med | `download_media` reported success but did nothing | `search.py` | ✅ Fixed |
-| 11 | 🟠 Med | `undo_rename` could overwrite an existing file (data loss) | `naming.py` | ✅ Fixed |
-| 12 | 🟠 Med | Dashboard `_gather_*` swallowed all exceptions → broken service looked "healthy" | `dashboard.py` | ✅ Fixed |
-| 13 | 🟠 Med | `library_*` wrappers had no try/except (could raise) | `library_tools.py` | ✅ Fixed |
-| 14 | 🟡 Low | Scheduler `daily_cleanup` (3 AM) & `weekly_scan` defined but never registered | `main.py` | ✅ Fixed |
-| 15 | 🟡 Low | `scheduler.stop()` left jobs populated; couldn't restart the scheduler | `scheduler.py` | ✅ Fixed |
-| 16 | 🟡 Low | `emby_search` header count mismatched the ≤20 items listed | `emby.py` | ✅ Fixed |
-| 17 | 🟡 Low | `get_tv_queue` fetched `sizeleft` then dropped it — no progress shown | `sonarr.py` | ✅ Fixed |
-| 18 | 🟡 Low | SABnzbd output mislabeled disk/queue fields | `sabnzbd.py` | ✅ Fixed |
-| 19 | 🟡 Low | `_check_local_tools` unbounded blocking `rglob` on every 30s refresh | `dashboard.py` | ✅ Fixed |
-| 20 | 🟡 Low | `cli_repl` uses blocking `console.input()` in an async fn (harmless today) | `cli.py:20` | ⬜ Open |
-| 21 | 🟡 Low | `_quick_hash` (head+tail only) can flag distinct files as duplicates | `scanner.py` | ⬜ Open |
-| 22 | 🟡 Low | `audible_download_new` prefixed ✅ even when 0 succeeded | `audible.py` | ✅ Fixed |
-| 23 | 🟡 Low | `rom_download` counted attempts, not verified downloads | `rom.py` | ✅ Fixed |
+| 1 | 🔴 High | Argument injection → command execution: LLM/user-controlled URL appended to yt-dlp/bandcamp-dl argv with no `--`, so `--exec=<cmd>` runs a shell command | `youtube.py`, `bandcamp.py` | ✅ Fixed |
+| 2 | 🔴 High | Dashboard data/chat routes had no authentication — full agent control for anyone who can reach the port | `dashboard.py` | ✅ Fixed |
+| 3 | 🔴 High | Published container port bound to `0.0.0.0` (whole LAN), contradicting the documented localhost-only design | `docker-compose.yml` | ✅ Fixed |
+| 4 | 🟠 Med | Download Station credentials sent in the URL query string (leak into logs) in the unified-search path | `search.py` | ✅ Fixed |
+| 5 | 🟠 Med | Library filesystem tools accepted an arbitrary `path` — enumerate/hash/rename anywhere the container could reach | `library_tools.py` | ✅ Fixed |
+| 6 | 🔴 High | `await rom_verify_dat(platform)` awaited a `@tool` object (always `TypeError`, swallowed) → DAT verification silently never ran | `rom.py` | ✅ Fixed |
+| 7 | 🟠 Med | All `rom_*` tools did blocking IA search/download/DAT-parse/MD5 hashing inside `async def` — froze the event loop and scheduler | `rom.py` | ✅ Fixed |
+| 8 | 🟠 Med | `audible_download_new` wrote `/state/...json` without creating `/state` → raised after downloading, so ASINs were never recorded (re-download every run); also missing the auth-file guard its siblings have | `audible.py` | ✅ Fixed |
+| 9 | 🟡 Low | `emby_recent(limit)` passed `limit` to the API but formatted a hardcoded `[:20]` — any `limit > 20` was silently truncated | `emby.py` | ✅ Fixed |
+| 10 | 🟡 Low | `get_movie_queue` dropped the download-progress % that `get_tv_queue` computes (copy-paste divergence) | `radarr.py` | ✅ Fixed |
+| 11 | 🟠 Med | `apscheduler` imported but absent from `requirements.txt` (Docker-only) → non-Docker installs got a silently-broken scheduler | `requirements.txt` | ✅ Fixed |
+| 12 | 🟡 Low | Invalid `build-backend` in pyproject (`setuptools.backends._legacy:_Backend`) → `pip install .` would fail; `requires-python` also lagged the code | `pyproject.toml` | ✅ Fixed |
+| 13 | 🟡 Low | DS credential env vars inconsistent (`DS_USERNAME`/`DS_PASSWORD` vs `DS_USER`/`DS_PASS`) and missing from `.env.example` | `download_station.py`, `.env.example` | ✅ Fixed |
+| 14 | 🟡 Low | Deprecated `datetime.utcnow()`; unused imports in providers; dead branch in `_trigger_summary`; unused deps in requirements | multiple | ✅ Fixed |
+| 15 | 🟡 Low | Doc drift: four different tool counts (49/59/61/66), missing Library category, wrong model name, stale "Download Station config gap" gotcha, wrong scheduler description | docs | ✅ Fixed |
+| 16 | 🟡 Low | `_quick_hash` reads only head+tail 64 KB → two distinct files with matching size/head/tail could be reported as duplicates | `scanner.py` | ⬜ Accepted |
+| 17 | 🟡 Low | `cli_repl` uses blocking `console.input()` in an async fn | `cli.py` | ⬜ Accepted |
+| 18 | 🟡 Low | SABnzbd `apikey` passed as a URL query param (required by the SABnzbd API; lands in logs) | `dashboard.py` | ⬜ Accepted |
 
 ---
 
 ## What changed
 
-**Highs**
-- **#1 Dashboard auth — DISABLED at owner's request.** A key-based guard was
-  implemented (Bearer header / `md_key` cookie / `?key=`) and then removed on
-  request: the dashboard data/chat routes are intentionally open, with no
-  credential required. ⚠️ The dashboard chat drives the full agent, and the
-  service is bound to `0.0.0.0:8088`, so anyone who can reach that port can
-  control the agent. Mitigate at the network layer (firewall / Tailscale ACLs /
-  reverse proxy) if that matters.
-- **#2 youtube.py** — new async `_run_ytdlp` helper (`asyncio.create_subprocess_exec`);
-  all four call sites await it.
-- **#3 find_duplicates** — walks the tree directly; verified it now finds real
-  duplicates across subdirectories.
-- **#4/#13 library_*** — blocking work via `asyncio.to_thread`, each tool wrapped
-  in try/except.
+**Security**
+- **#1 Argument injection.** URLs are now passed after a `--` end-of-options
+  separator in all four yt-dlp call sites and in bandcamp-dl. List-form argv
+  already blocked shell metacharacters; `--` closes the remaining option-injection
+  hole (e.g. a "URL" of `--exec=<cmd>`, which yt-dlp would otherwise run).
+- **#2 Dashboard auth.** `/api/dashboard/data` and `/api/dashboard/chat` now call
+  the same `_check_auth` guard as the `/v1` endpoints — a no-op when no
+  `MEDIA_AGENT_API_KEY` is set, enforced (Bearer, constant-time compare) when one
+  is. The `/dashboard` HTML shell remains open.
+- **#3 Loopback bind.** `docker-compose.yml` publishes `127.0.0.1:8088:8088`.
+  Expose beyond localhost only via an authenticated reverse proxy or VPN.
+- **#4 DS credential leak.** The unified search reuses the hardened
+  `DownloadStationClient` (POST-body credentials, login→request→logout) instead
+  of a hand-built `GET` with `account=`/`passwd=` in the query string.
+- **#5 Path confinement.** `library_*` tools resolve the requested path with
+  `realpath` and require it to sit inside the configured `library.media_root`
+  (blocks `..` traversal and symlink escapes; denies outright when `media_root`
+  is unset).
 
-**Mediums**
-- **#5 failover** — local model wrapped with `with_fallbacks([hosted])` when a
-  hosted fallback is configured (default path unchanged).
-- **#6/#7/#8 Download Station** — client rewritten: login→request→logout per call
-  (no leaked SID), credentials sent as POST form data, auth failure raised and
-  surfaced instead of masked as "no tasks". The dashboard's own DS/SABnzbd
-  gatherers now emit an **error card** (counts toward "degraded") instead of
-  vanishing (#12), and DS login there also moved to POST.
-- **#9** — added `includeSeries=true` / `includeMovie=true` to *arr history &
-  calendar.
-- **#10** — `download_media` now states plainly that nothing was downloaded and
-  routes to the source-specific tool.
-- **#11** — `undo_rename` skips (with a warning) when the original path is occupied.
+**Correctness**
+- **#6 rom verify.** `await rom_verify_dat.ainvoke({"platform": platform})` — the
+  tool actually runs now instead of raising and being swallowed.
+- **#7 rom blocking.** IA search/download, DAT parsing, and MD5 hashing moved into
+  sync helpers invoked via `asyncio.to_thread`, matching the rest of the codebase.
+- **#8 audible state.** `/state` is created before the sync-state write, and the
+  auth-file guard was added.
+- **#9/#10** — `emby_recent` honors `limit`; `get_movie_queue` shows progress %.
 
-**Lows**
-- **#14** — `daily_cleanup` (health report) and `weekly_scan` (Emby scan) jobs
-  registered; startup log reports the real job count.
-- **#15** — `stop()` clears jobs/callbacks and replaces the scheduler so `start()`
-  works again.
-- **#16** — `emby_search` header shows "showing first N" when the library match
-  exceeds the listed items.
-- **#17** — `get_tv_queue` now shows a real progress %.
-- **#18** — SABnzbd totals use `mb`/`mbleft`; disk shows "free of total".
-- **#19** — `_check_local_tools` offloaded via `asyncio.to_thread`.
-- **#22** — `audible_download_new` uses ⚠️ when 0 succeeded.
-- **#23** — `rom_download` counts only files that downloaded without error and
-  reports failures.
+**Packaging / config / docs**
+- **#11–#15** — `apscheduler` added to requirements (unused `sse-starlette` and
+  `pydantic-settings` removed); valid setuptools build backend and
+  `requires-python >=3.12`; `DS_USERNAME`/`DS_PASSWORD` standardized and added to
+  `.env.example`; `datetime.now(timezone.utc)` replaces the deprecated call;
+  unused imports and a dead branch removed; docs normalized to **66 tools** with a
+  Library category, the correct `qwen3.5:9b` model name, an accurate scheduler
+  description, and the stale DS "config gap" gotcha deleted.
 
 ---
 
 ## Still open (accepted, low risk)
 
-- **#20 — `cli_repl` blocking `console.input()`.** Harmless in the current
-  single-task REPL (nothing else shares the loop). Would only matter if a
-  concurrent async task were added to the CLI; fix then with a thread-offloaded
-  prompt.
-- **#21 — `_quick_hash` head+tail only.** Two distinct files with identical size
-  and matching head/tail bytes could be reported as duplicates. The report is
-  advisory (no deletion), so the risk is a misleading listing, not data loss.
-  Upgrading to a full hash would slow large-library scans significantly; left as
-  a documented trade-off.
+- **#16 `_quick_hash` head+tail only.** The duplicate report is advisory (no
+  deletion), so the risk is a misleading listing, not data loss. A full hash would
+  slow large-library scans significantly; left as a documented trade-off.
+- **#17 `cli_repl` blocking input.** Harmless in the current single-task REPL
+  (nothing else shares the loop). Fix with a thread-offloaded prompt if a
+  concurrent async task is ever added to the CLI.
+- **#18 SABnzbd `apikey` in query string.** SABnzbd's API requires the key as a
+  query parameter; it is an internal service and the value only reaches
+  server/proxy logs. No code change available without a SABnzbd-side option.
 
----
+## Known, not addressed (cosmetic)
 
-## Already clean / stale docs
+- `SonarrClient`/`RadarrClient` (and `EmbyClient`/`SabnzbdClient`) are near-identical
+  and could share one base client; `health.py` hand-rolls its httpx setup instead
+  of reusing them. No behavioral impact — left for a future refactor.
+- `bandcamp`/`audible`/`rom` providers are imported unconditionally in
+  `registry.py` (their heavy deps import lazily inside functions, so this is safe),
+  unlike the `try/except ImportError` guards used for the other optional providers.
+- Several `.env.example` service URLs are inert unless the operator adds `${...}`
+  references to `settings.yaml` (the example hardcodes URLs). Documented behavior of
+  the env-substitution engine, not a bug.
 
-Re-verified against current source — these are **not** bugs:
+## By design (not a defect)
 
-- API-key comparison **is** constant-time (`hmac.compare_digest`, `openai_api.py:48`).
-- `download_station` config property **exists** (`config.py`) — the CLAUDE.md
-  "config gap" gotcha is stale.
-- Audible "dead-code partial return" and "marks failed as done" — both already
-  correct; per-book gating on `returncode == 0` holds.
-- `*arr`/Emby HTTP clients don't leak (`async with` + timeout + `raise_for_status`).
-- Registry is complete — every `@tool` on disk is registered (59 tools; CLAUDE.md's
-  "49" is doc drift).
-- No `shell=True` / command injection in any provider (all argv list-form).
+- The `/v1` and dashboard APIs are **open when no `MEDIA_AGENT_API_KEY` is set**.
+  This is intentional for a single-user localhost deployment; set a key before
+  exposing the service. With the loopback bind (#3) this is safe by default.

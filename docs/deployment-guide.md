@@ -1,7 +1,7 @@
 # Media Agent — Deployment Guide
 
 **Version:** 2.0  
-**Date:** 2026-07-05
+**Last updated:** 2026-07-11
 
 ---
 
@@ -257,4 +257,4 @@ Container data (config, state) is bind-mounted — safe across rebuilds.
 
 ---
 
-*Last updated: 2026-07-05*
+*Last updated: 2026-07-11*
