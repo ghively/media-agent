@@ -116,11 +116,14 @@ async def get_movie_queue() -> str:
         for r in records:
             title = r.get("title", "Unknown")
             status = r.get("status", "unknown")
+            size = float(r.get("size", 0) or 0)
+            left = float(r.get("sizeleft", 0) or 0)
+            pct = f" — {round((1 - left / size) * 100)}%" if size > 0 else ""
             # Clean up title for readability
             clean = _re.sub(r'\.', ' ', title)
             clean = _re.sub(r'\s+(1080|720|2160|480)\b.*$', '', clean)
             clean = _re.sub(r'\s+(WEB|BluRay|Blu-Ray|HDTV|AMZN|DSNP|ATVP|HMAX|WEBRip|WEB-DL)\b.*$', '', clean, flags=_re.IGNORECASE)
-            lines.append(f"  • {clean} — {status}")
+            lines.append(f"  • {clean} — {status}{pct}")
         return "\n".join(lines)
     except httpx.ConnectError:
         return "❌ Cannot connect to Radarr."

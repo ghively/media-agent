@@ -17,6 +17,7 @@ Complete reference for all 66 registered LangGraph tools in the media-agent proj
 | Bandcamp | 2 | Bandcamp album/track downloads |
 | Audible | 5 | Audible audiobook management |
 | ROMs | 4 | Retro game ROM downloads and verification |
+| Library | 5 | Filesystem inventory, duplicate detection, and naming convention management |
 
 **Total: 66 tools registered**
 
@@ -1386,6 +1387,132 @@ ROM collection by platform:
   • genesis: 920 games
   • n64: 320 games
   • gba: 1100 games
+```
+
+---
+
+## Library
+
+Filesystem inventory, duplicate detection, and naming convention management. These tools wrap the `scanner.py` and `naming.py` modules in `src/library/`.
+
+> **Security note:** The `library_*` tools are now confined to the configured `library.media_root` path (a security fix just applied). Any `path` argument is resolved relative to and validated against `library.media_root`; paths that escape that root are rejected.
+
+### `library_build_inventory(path: str) -> str`
+
+Walk a media directory and build a file inventory with sizes and types.
+
+**Parameters:**
+- `path` (str): Directory path to inventory (e.g. `/media/movies` or `/media/tv`), confined to `library.media_root`
+
+**Called:** `src/library/scanner.py` — `build_inventory` (local filesystem scan)
+
+**Example:**
+```bash
+library_build_inventory(path="/media/movies")
+```
+
+**Returns:** Inventory summary with file counts and sizes by type, e.g.:
+```
+📁 Inventory for /media/movies:
+  • 1,204 files  |  8.4 TB total
+  • video: 1,150 files (8.3 TB)
+  • subtitle: 48 files
+  • other: 6 files
+```
+
+---
+
+### `library_find_duplicates(path: str) -> str`
+
+Find duplicate media files in a directory by comparing file sizes and content hashes.
+
+**Parameters:**
+- `path` (str): Directory path to scan, confined to `library.media_root`
+
+**Called:** `src/library/scanner.py` — `find_duplicates` (size + content hash comparison)
+
+**Example:**
+```bash
+library_find_duplicates(path="/media/movies")
+```
+
+**Returns:** List of duplicate groups, e.g.:
+```
+⚠️ Found 2 duplicate group(s):
+
+  The Matrix (1999):
+    • /media/movies/The Matrix (1999)/The Matrix.mkv (12.1 GB)
+    • /media/movies/backup/The Matrix.mkv (12.1 GB)
+```
+
+---
+
+### `library_check_naming(path: str, convention: str = "tv") -> str`
+
+Check filenames in a directory against naming conventions (does not rename).
+
+**Parameters:**
+- `path` (str): Directory path to check, confined to `library.media_root`
+- `convention` (str, optional): Convention to check against — `tv` (default), `movie`, or `music`
+
+**Called:** `src/library/naming.py` — `check_naming`
+
+**Example:**
+```bash
+library_check_naming(path="/media/tv", convention="tv")
+```
+
+**Returns:** List of non-conforming files with suggested names, e.g.:
+```
+Checked 320 file(s) against 'tv' convention:
+  ✅ 305 conforming
+  ⚠️ 15 non-conforming:
+    • breaking.bad.s01e01.mkv → Breaking Bad - s01e01 - Pilot.mkv
+```
+
+---
+
+### `library_fix_naming(path: str, convention: str = "tv") -> str`
+
+Rename files to match naming conventions. Creates an undo log before renaming so the batch is reversible.
+
+**Parameters:**
+- `path` (str): Directory path to fix, confined to `library.media_root`
+- `convention` (str, optional): Convention to apply — `tv` (default), `movie`, or `music`
+
+**Called:** `src/library/naming.py` — `fix_naming` (writes an undo log to `.media_agent_undo/`)
+
+**Example:**
+```bash
+library_fix_naming(path="/media/tv", convention="tv")
+```
+
+**Returns:** Rename summary with the undo log path, e.g.:
+```
+✅ Renamed 15 file(s) to match 'tv' convention.
+Undo log: /media/tv/.media_agent_undo/rename_20260711_143022.json
+Run `library_undo_rename` with this path to revert.
+```
+
+---
+
+### `library_undo_rename(undo_log_path: str) -> str`
+
+Revert a batch rename using an undo log created by `library_fix_naming`.
+
+**Parameters:**
+- `undo_log_path` (str): Path to the undo log file (from the `.media_agent_undo/` directory), confined to `library.media_root`
+
+**Called:** `src/library/naming.py` — `undo_rename`
+
+**Example:**
+```bash
+library_undo_rename(undo_log_path="/media/tv/.media_agent_undo/rename_20260711_143022.json")
+```
+
+**Returns:** Revert confirmation, e.g.:
+```
+✅ Reverted 15 rename(s) from rename_20260711_143022.json.
 ```
 
 ---
