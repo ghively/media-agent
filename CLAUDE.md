@@ -58,7 +58,7 @@ Deterministic router (src/graphs/router.py)   ← tried FIRST, no LLM
     │ bulk/irreversible ops (ROM sets, renames, collection sync) confirm first
     │ handled? → tool call(s) → instant reply (recorded into agent memory)
     │ no match ▼
-LangGraph create_react_agent(llm, 66 tools)   via run_agent()/stream_agent()
+LangGraph create_react_agent(llm, 70 tools)   via run_agent()/stream_agent()
     │
     ├── LLM decides which tools to call
     ├── Tools execute (async, parallel when possible)
@@ -101,7 +101,8 @@ src/
     │   ├── sabnzbd.py       # 6 tools: queue, history, status, pause, resume, add NZB
     │   ├── download_station.py # 6 tools: list, add, pause, resume, info, stats
     │   ├── search.py        # 2 tools: search_media (unified), download_media
-    │   └── library_tools.py # 5 tools: library_build_inventory, library_find_duplicates, library_check_naming, library_fix_naming, library_undo_rename
+    │   ├── library_tools.py # 5 tools: library_build_inventory, library_find_duplicates, library_check_naming, library_fix_naming, library_undo_rename
+    │   └── rom_tools.py     # 4 tools: rom_scan_library, rom_inspect, rom_find_duplicates, rom_check_problems
 ├── providers/           # Content-specific providers (subprocess-backed)
 │   ├── base.py          # MediaProvider protocol
 │   ├── youtube.py       # 6 tools via yt-dlp subprocess
@@ -110,7 +111,8 @@ src/
 │   └── rom.py           # 4 tools via internetarchive subprocess
 ├── library/             # Library management
 │   ├── scanner.py       # Inventory, cross-reference, orphans, duplicates
-│   └── naming.py        # Naming convention check/fix + undo logs
+│   ├── naming.py        # Naming convention check/fix + undo logs
+│   └── rom_analyzer.py  # ROM engine: header parsers (NES/SNES/GB/GBA/N64/NDS/Genesis/SMS/Lynx/...), CRC dedup, debug checks
 └── interfaces/
     ├── cli.py           # Interactive REPL + one-shot + health
     ├── openai_api.py    # FastAPI: /v1/chat/completions + /v1/models + /health

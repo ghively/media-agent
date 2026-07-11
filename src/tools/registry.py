@@ -69,6 +69,17 @@ try:
 except ImportError:
     _youtube_tools = []
 
+# ROM library analysis tools (identify / inspect / dedup / debug)
+try:
+    from src.tools.rom_tools import (
+        rom_scan_library, rom_inspect, rom_find_duplicates, rom_check_problems,
+    )
+    _rom_library_tools = [
+        rom_scan_library, rom_inspect, rom_find_duplicates, rom_check_problems,
+    ]
+except ImportError:
+    _rom_library_tools = []
+
 # Library management tools
 try:
     from src.tools.library_tools import (
@@ -106,5 +117,5 @@ all_tools = (
     # ROMs
      rom_search_archive, rom_download, rom_verify_dat, rom_get_collection,
     ] + _sabnzbd_tools + _search_tools + _download_station_tools + _youtube_tools
-    + _library_tools
+    + _library_tools + _rom_library_tools
 )

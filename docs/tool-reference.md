@@ -1,6 +1,6 @@
 # Media Agent Tool Reference
 
-Complete reference for all 66 registered LangGraph tools in the media-agent project.
+Complete reference for all 70 registered LangGraph tools in the media-agent project.
 
 ## Summary
 
@@ -17,9 +17,10 @@ Complete reference for all 66 registered LangGraph tools in the media-agent proj
 | Bandcamp | 2 | Bandcamp album/track downloads |
 | Audible | 5 | Audible audiobook management |
 | ROMs | 4 | Retro game ROM downloads and verification |
+| ROM Library | 4 | Header-level ROM identification, metadata, deduplication, and debugging |
 | Library | 5 | Filesystem inventory, duplicate detection, and naming convention management |
 
-**Total: 66 tools registered**
+**Total: 70 tools registered**
 
 ---
 
@@ -1387,6 +1388,67 @@ ROM collection by platform:
   • genesis: 920 games
   • n64: 320 games
   • gba: 1100 games
+```
+
+---
+
+## ROM Library
+
+Header-level analysis of the local ROM collection — identification, metadata, deduplication, and debugging. These tools wrap `src/library/rom_analyzer.py` (pure stdlib: header parsers + CRC32 hashing). Paths are confined to the configured ROM library (`services.roms.library_dir` / `download_path`) or `library.media_root`.
+
+Supported header parsers: NES (iNES/NES 2.0), SNES (LoROM/HiROM, copier headers), Game Boy / Game Boy Color, Game Boy Advance, Nintendo 64 (byte-order detection), Nintendo DS, Genesis/Mega Drive, Master System/Game Gear, Atari Lynx, PC Engine, Atari 2600. ~40 further platforms are identified by extension, and zips are inspected internally (member CRCs read from the archive's central directory — the checksum No-Intro DATs use).
+
+### `rom_scan_library(path: str = "", platform: str = "") -> str`
+
+Scan the ROM library: identify every ROM's platform and format from file headers, extract metadata, and summarize any problems found.
+
+**Parameters:**
+- `path` (str, optional): Directory to scan. Defaults to the configured ROM library.
+- `platform` (str, optional): Platform subfolder (nes, snes, n64, gba, psx...).
+
+**Example:**
+```bash
+rom_scan_library(platform="snes")
+```
+
+**Returns:** Counts by platform and format, metadata coverage, and an issue sample.
+
+### `rom_inspect(path: str) -> str`
+
+Deep-inspect one ROM file (or a zip of ROMs): platform, format, internal header title, region, game code, header checksum validation, CRC32, filename tags, and any problems.
+
+**Parameters:**
+- `path` (str): Full path to the ROM file.
+
+**Example:**
+```bash
+rom_inspect(path="/media/roms/snes/Super Game (USA) (Rev 1).sfc")
+```
+
+### `rom_find_duplicates(path: str = "", platform: str = "") -> str`
+
+Find duplicate ROMs: exact byte-identical copies (matched by CRC32, including inside zips) with a keep/delete recommendation, plus groups of the same game in different regions/revisions. Nothing is deleted — the report is advisory.
+
+**Parameters:**
+- `path` (str, optional): Directory to scan. Defaults to the configured ROM library.
+- `platform` (str, optional): Platform subfolder.
+
+**Example:**
+```bash
+rom_find_duplicates(platform="nes")
+```
+
+### `rom_check_problems(path: str = "", platform: str = "") -> str`
+
+Debug the ROM collection: corrupt or truncated files, failed header checksums (won't boot on real hardware), byte-swapped N64 dumps, SNES/PCE copier headers, misnamed files (extension vs content), orphaned .cue/.bin disc tracks, bad-dump [b] tags, and broken zips.
+
+**Parameters:**
+- `path` (str, optional): Directory to scan. Defaults to the configured ROM library.
+- `platform` (str, optional): Platform subfolder.
+
+**Example:**
+```bash
+rom_check_problems(platform="n64")
 ```
 
 ---
