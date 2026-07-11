@@ -15,13 +15,14 @@ Usage in main.py::
 """
 import asyncio
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Header, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from src.config import get_settings
+from src.interfaces.openai_api import _check_auth
 
 
 class ChatRequest(BaseModel):
@@ -56,18 +57,23 @@ def _register_routes(app: FastAPI) -> None:
         return HTMLResponse(content=_DASHBOARD_HTML)
 
     @app.get("/api/dashboard/data", include_in_schema=False)
-    async def dashboard_data():
+    async def dashboard_data(authorization: str | None = Header(None)):
+        # Requires the configured API key when one is set; open otherwise.
+        # These routes drive the full agent, so gate them behind the same
+        # credential as the OpenAI-compatible API.
+        _check_auth(authorization)
         data = await _gather_all_data()
         return JSONResponse(data)
 
     @app.post("/api/dashboard/chat", include_in_schema=False)
-    async def dashboard_chat(req: ChatRequest):
+    async def dashboard_chat(req: ChatRequest, authorization: str | None = Header(None)):
         """Chat endpoint for the dashboard. Streams response as SSE.
 
         Uses a fixed thread_id ("dashboard") so conversation history persists
         across messages via the agent's MemorySaver checkpointer. This lets
         follow-up messages like "add the first one" reference earlier results.
         """
+        _check_auth(authorization)
         import json as _json
         import uuid as _uuid
 
@@ -119,7 +125,7 @@ async def _gather_all_data() -> dict:
     from src.tools.emby import EmbyClient
 
     settings = get_settings()
-    now = datetime.utcnow().isoformat() + "Z"
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z"
 
     # Run all health checks concurrently
     sonarr_task = _gather_sonarr(settings)

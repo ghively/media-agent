@@ -13,7 +13,7 @@ import re
 import shutil
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ── patterns ─────────────────────────────────────────────────────────────
 
@@ -144,7 +144,7 @@ def fix_naming(path: str, convention: str = "tv") -> str:
             undo_log.append({
                 "old": str(old_path),
                 "new": str(new_path),
-                "time": datetime.utcnow().isoformat(),
+                "time": datetime.now(timezone.utc).isoformat(),
             })
             renamed += 1
         except OSError as e:
@@ -153,7 +153,7 @@ def fix_naming(path: str, convention: str = "tv") -> str:
     # Write undo log
     undo_file = None
     if undo_log:
-        undo_stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        undo_stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         undo_file = undo_dir / f"undo_{convention}_{undo_stamp}.json"
         with open(undo_file, "w") as f:
             json.dump(undo_log, f, indent=2)

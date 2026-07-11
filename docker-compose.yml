@@ -3,8 +3,10 @@ services:
     build: .
     container_name: media-agent
     restart: unless-stopped
+    # Bind to loopback only. The dashboard/API drive the full agent; expose
+    # them beyond localhost via a reverse proxy or VPN with auth, not directly.
     ports:
-      - "0.0.0.0:8088:8088"
+      - "127.0.0.1:8088:8088"
     env_file:
       - .env
     volumes:

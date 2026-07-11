@@ -1,7 +1,7 @@
 # Media Agent — Architecture
 
 **Version:** 2.0 (as-built)  
-**Date:** 2026-07-05  
+**Last updated:** 2026-07-11  
 **Status:** Reflects actual deployed system
 
 > For the original design vision (including planned features), see [SPEC.md](SPEC.md). This document describes what is **actually built and running**.
@@ -22,7 +22,7 @@ Media Agent is a single Docker container running on **your-gpu-host** (NVIDIA RT
 │  │                                                              │   │
 │  │  ┌────────────┐  ┌──────────────┐  ┌──────────────────┐     │   │
 │  │  │  FastAPI    │  │  APScheduler │  │  LangGraph ReAct  │     │   │
-│  │  │  Server     │  │  (daemon     │  │  Agent (49 tools) │     │   │
+│  │  │  Server     │  │  (daemon     │  │  Agent (66 tools) │     │   │
 │  │  │  :8088      │  │   thread)    │  │                   │     │   │
 │  │  │             │  │              │  │  ┌─────────────┐ │     │   │
 │  │  │ • /v1/chat  │  │ • health 30m │  │  │   Qwen 3.5   │ │     │   │
@@ -69,7 +69,7 @@ Four modes, selected via CLI args:
 | `--query` / `-q` | **One-shot** | Single query, print result, exit |
 | `--health` | **Health check** | Quick service health report |
 
-The server mode mounts the dashboard routes onto the FastAPI app and starts the scheduler in a daemon thread before launching uvicorn.
+The server mode mounts the dashboard routes onto the FastAPI app and starts the scheduler (an `AsyncIOScheduler` bound to the app's event loop) on FastAPI startup before launching uvicorn.
 
 ### 2.2 LLM Engine (`src/llm/client.py`)
 
@@ -202,7 +202,7 @@ Naming conventions:
 
 ### 2.7 Scheduler (`src/scheduler.py`)
 
-APScheduler runs in a daemon thread alongside the FastAPI server. Predefined jobs:
+APScheduler's `AsyncIOScheduler` runs on the FastAPI server's event loop (started on app startup). Predefined jobs:
 
 | Job | Schedule | Action |
 |---|---|---|
@@ -392,7 +392,7 @@ All API keys in **password manager **, injected via `.env` → Docker `env_file`
 
 ### Why `create_react_agent` instead of custom StateGraph
 
-The ReAct loop handles the tool-call cycle automatically. For a tool-heavy agent with 49 tools, this is simpler and more reliable than hand-wiring a custom graph. The system prompt constrains behavior sufficiently.
+The ReAct loop handles the tool-call cycle automatically. For a tool-heavy agent with 66 tools, this is simpler and more reliable than hand-wiring a custom graph. The system prompt constrains behavior sufficiently.
 
 ### Why strings instead of structured returns
 

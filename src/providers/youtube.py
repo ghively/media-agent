@@ -144,8 +144,9 @@ async def youtube_download(url: str, content_type: str = "video") -> str:
         # Embed metadata
         cmd.extend(["--embed-metadata", "--add-metadata"])
 
-        # Add the URL
-        cmd.append(url)
+        # Add the URL after `--` so a malicious value like "--exec=..." can
+        # never be parsed as a yt-dlp option (argument injection guard).
+        cmd.extend(["--", url])
 
         # Run yt-dlp (async — does not block the event loop)
         result = await _run_ytdlp(cmd, timeout=600)  # 10 min timeout for downloads
@@ -196,7 +197,7 @@ async def youtube_add_subscription(url: str, content_type: str = "concert") -> s
             "--print", "channel_url",
             "--no-download",
             "--skip-download",
-            url,
+            "--", url,
         ]
         result = await _run_ytdlp(cmd, timeout=30)
 
@@ -275,7 +276,7 @@ async def youtube_check_subscriptions() -> str:
                     "--print", "%(title)s|%(id)s|%(upload_date)s",
                     "--no-download",
                     "--skip-download",
-                    url,
+                    "--", url,
                 ]
                 result = await _run_ytdlp(cmd, timeout=30)
 
@@ -428,7 +429,7 @@ async def youtube_get_info(url: str) -> str:
             "--print", "description",
             "--no-download",
             "--skip-download",
-            url,
+            "--", url,
         ]
         result = await _run_ytdlp(cmd, timeout=30)
 
