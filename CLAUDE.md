@@ -50,20 +50,31 @@
 User Input (CLI/API/Dashboard)
     │
     ▼
-LangGraph create_react_agent(llm, 66 tools)
+Deterministic router (src/graphs/router.py)   ← tried FIRST, no LLM
+    │ ~45 intent groups across ALL domains: queue/health/disk/search/add,
+    │ ROMs & emulation, YouTube (URLs + subscriptions), Audible, Bandcamp,
+    │ library maintenance, SABnzbd/DS, quality profiles, Emby search
+    │ media URLs dispatch by type: youtube/bandcamp/magnet/.torrent/.nzb
+    │ bulk/irreversible ops (ROM sets, renames, collection sync) confirm first
+    │ handled? → tool call(s) → instant reply (recorded into agent memory)
+    │ no match ▼
+LangGraph create_react_agent(llm, 70 tools)   via run_agent()/stream_agent()
     │
     ├── LLM decides which tools to call
     ├── Tools execute (async, parallel when possible)
     ├── Results go back to LLM as text
-    └── LLM loops until it can answer
+    └── LLM loops until it can answer (recursion limit 16)
     │
     ▼
 Formatted response → User
 ```
 
 **LLM:** qwen3.5:9b via Ollama (local, free, ~35 tok/s).  
-**Circuit breaker:** Local-first, falls back to hosted API after 3 failures.  
+**Fast path:** common commands are answered deterministically by the router — they work even when the LLM is down.  
+**Circuit breaker:** Local-first, falls back to hosted API after 3 failures (OPEN state skips straight to hosted).  
 **Scheduler:** AsyncIOScheduler running in the main event loop (health checks, missing searches, cleanup).
+
+**Invocation rule:** interfaces never call the compiled graph directly. The pattern is always `try_route()` → on miss `run_agent()`/`stream_agent()` with a `thread_id` (mandatory — the graph has a checkpointer). Router hits are synced into agent memory with `record_exchange()`.
 
 ---
 
@@ -79,7 +90,8 @@ src/
 ├── llm/
 │   └── client.py        # MediaLLM: circuit breaker (CLOSED→OPEN→HALF_OPEN)
 ├── graphs/
-│   └── conversational.py # create_react_agent + SYSTEM_PROMPT
+│   ├── conversational.py # create_react_agent + SYSTEM_PROMPT + run_agent/stream_agent
+│   └── router.py        # Deterministic intent router (fast path, no LLM)
 ├── tools/               # LangChain @tool functions (API-backed)
     │   ├── registry.py      # ← all_tools aggregation (THE import point)
     │   ├── sonarr.py        # 12 tools: search, add, list, queue, history, calendar, health, missing, quality profiles, root folders, refresh, season search
@@ -89,7 +101,8 @@ src/
     │   ├── sabnzbd.py       # 6 tools: queue, history, status, pause, resume, add NZB
     │   ├── download_station.py # 6 tools: list, add, pause, resume, info, stats
     │   ├── search.py        # 2 tools: search_media (unified), download_media
-    │   └── library_tools.py # 5 tools: library_build_inventory, library_find_duplicates, library_check_naming, library_fix_naming, library_undo_rename
+    │   ├── library_tools.py # 5 tools: library_build_inventory, library_find_duplicates, library_check_naming, library_fix_naming, library_undo_rename
+    │   └── rom_tools.py     # 4 tools: rom_scan_library, rom_inspect, rom_find_duplicates, rom_check_problems
 ├── providers/           # Content-specific providers (subprocess-backed)
 │   ├── base.py          # MediaProvider protocol
 │   ├── youtube.py       # 6 tools via yt-dlp subprocess
@@ -98,7 +111,8 @@ src/
 │   └── rom.py           # 4 tools via internetarchive subprocess
 ├── library/             # Library management
 │   ├── scanner.py       # Inventory, cross-reference, orphans, duplicates
-│   └── naming.py        # Naming convention check/fix + undo logs
+│   ├── naming.py        # Naming convention check/fix + undo logs
+│   └── rom_analyzer.py  # ROM engine: header parsers (NES/SNES/GB/GBA/N64/NDS/Genesis/SMS/Lynx/...), CRC dedup, debug checks
 └── interfaces/
     ├── cli.py           # Interactive REPL + one-shot + health
     ├── openai_api.py    # FastAPI: /v1/chat/completions + /v1/models + /health
@@ -191,7 +205,17 @@ The `Settings` class in `src/config.py` is a **singleton** — call `get_setting
 
 ## Testing
 
-Currently no automated tests. To verify manually:
+Automated tests live in `tests/` (pytest + pytest-asyncio, no live services
+needed — the router and agent helpers are tested with fakes):
+
+```bash
+pip install pytest pytest-asyncio
+python -m pytest tests/ -q
+```
+
+If you touch the router (`src/graphs/router.py`) or agent helpers
+(`src/graphs/conversational.py`), run the tests and add cases for new
+intents. To verify manually against live services:
 
 ```bash
 # Build and start
@@ -272,7 +296,7 @@ This agent is part of a larger homelab:
 | **High** | Telegram bot interface (needs bot token from a bot) | Small — `python-telegram-bot` already installed |
 | **High** | Prowlarr + qBittorrent deploy on NAS (enables full unified search) | Medium — Docker deploy on your-nas |
 | **Medium** | Lidarr deploy (music management) | Small — Docker deploy |
-| **Medium** | Automated tests (pytest + pytest-asyncio) | Medium |
+| **Medium** | Automated tests — router + agent core covered in `tests/`; extend to tool modules | Medium |
 | **Medium** | NFS mount into container (enables library scanner on real files) | Small — DSM config + compose volume |
 | **Low** | Podcast provider (RSS) | Small — new provider |
 | **Low** | Twitch provider (streamlink) | Small — new provider |
@@ -285,11 +309,12 @@ This agent is part of a larger homelab:
 
 1. **Am I adding a tool?** → Follow the tool pattern exactly (async, string return, try/except)
 2. **Am I adding a service?** → Add config property, env var, settings.yaml entry
-3. **Am I changing the agent behavior?** → Update SYSTEM_PROMPT in `conversational.py`
-4. **Am I changing network config?** → Don't break the agent-mesh → Ollama path
-5. **Am I adding a dependency?** → Add to requirements.txt AND Dockerfile pip install
-6. **Will this change break existing tools?** → Run `docker exec media-agent python -c "from src.tools.registry import all_tools; print(len(all_tools))"` after rebuild
-7. **Did I update the docs?** → README, ARCHITECTURE.md, docs/tool-reference.md as needed
+3. **Am I changing the agent behavior?** → Update SYSTEM_PROMPT in `conversational.py`. If it's a common command, also consider a deterministic intent in `router.py` (pattern + handler + test) so it doesn't need the LLM
+4. **Am I adding an interface?** → Follow the invocation rule: `try_route()` first, then `run_agent()`/`stream_agent()` with a thread_id — never invoke the compiled graph directly
+5. **Am I changing network config?** → Don't break the agent-mesh → Ollama path
+6. **Am I adding a dependency?** → Add to requirements.txt AND Dockerfile pip install
+7. **Will this change break existing tools?** → Run `docker exec media-agent python -c "from src.tools.registry import all_tools; print(len(all_tools))"` after rebuild
+8. **Did I update the docs?** → README, ARCHITECTURE.md, docs/tool-reference.md as needed
 
 ---
 

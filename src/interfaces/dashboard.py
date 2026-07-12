@@ -75,26 +75,28 @@ def _register_routes(app: FastAPI) -> None:
         """
         _check_auth(authorization)
         import json as _json
-        import uuid as _uuid
 
-        # Config that ties all dashboard messages to one conversation thread.
-        thread_config = {"configurable": {"thread_id": "dashboard"}}
+        # All dashboard messages share one conversation thread, so follow-ups
+        # like "add the first one" keep their context.
+        thread_id = "dashboard"
 
         async def _stream():
-            chunk_id = f"chat-{_uuid.uuid4().hex[:8]}"
+            from src.graphs.conversational import record_exchange, stream_agent
+            from src.graphs.router import try_route
+
             try:
-                agent = _get_or_create_agent()
+                # Deterministic fast path first — instant, no LLM round-trip.
+                routed = await try_route(req.message, thread_id)
+                if routed is not None:
+                    await record_exchange(thread_id, req.message, routed)
+                    yield f"data: {_json.dumps({'content': routed, 'done': False})}\n\n"
+                    yield f"data: {_json.dumps({'content': '', 'done': True, 'full': routed})}\n\n"
+                    return
+
                 collected = []
-                async for event in agent.astream_events(
-                    {"messages": [{"role": "user", "content": req.message}]},
-                    version="v2",
-                    config=thread_config,
-                ):
-                    if event["event"] == "on_chat_model_stream":
-                        chunk = event["data"].get("chunk")
-                        if chunk and hasattr(chunk, "content") and chunk.content:
-                            collected.append(chunk.content)
-                            yield f"data: {_json.dumps({'content': chunk.content, 'done': False})}\n\n"
+                async for text in stream_agent(req.message, thread_id):
+                    collected.append(text)
+                    yield f"data: {_json.dumps({'content': text, 'done': False})}\n\n"
 
                 full = "".join(collected) or "No response."
                 yield f"data: {_json.dumps({'content': '', 'done': True, 'full': full})}\n\n"
@@ -102,17 +104,6 @@ def _register_routes(app: FastAPI) -> None:
                 yield f"data: {_json.dumps({'content': '', 'done': True, 'error': f'❌ {type(e).__name__}: {e}'})}\n\n"
 
         return StreamingResponse(_stream(), media_type="text/event-stream")
-
-
-_agent_instance = None
-
-
-def _get_or_create_agent():
-    global _agent_instance
-    if _agent_instance is None:
-        from src.graphs.conversational import create_agent
-        _agent_instance = create_agent()
-    return _agent_instance
 
 
 # ── data gathering ────────────────────────────────────────────────────────
@@ -730,6 +721,10 @@ _DASHBOARD_HTML = r"""
       <button class="action-btn" onclick="quickAction('check disk space')">Disk Space</button>
       <button class="action-btn" onclick="quickAction('check all queues')">All Queues</button>
       <button class="action-btn" onclick="quickAction('list download station tasks')">Torrents</button>
+      <button class="action-btn" onclick="quickAction('list my rom collection')">Game Collection</button>
+      <button class="action-btn" onclick="quickAction('list my youtube subscriptions')">YouTube Subs</button>
+      <button class="action-btn" onclick="quickAction('check youtube subscriptions')">New Uploads</button>
+      <button class="action-btn" onclick="quickAction('list my audiobooks')">Audiobooks</button>
     </div>
   </div>
 
