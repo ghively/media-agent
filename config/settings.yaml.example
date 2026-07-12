@@ -44,8 +44,10 @@ services:
     download_path: "/media/youtube"
     subscriptions_file: "/state/youtube_subs.json"
   audible:
-    auth_file: "/state/audible_auth.json"
-    download_path: "/media/audiobooks"
+    # The Audible provider currently uses fixed paths (these are not yet
+    # configurable): auth at /config/audible/auth.json, downloads staged in
+    # /tmp/audible_downloads, sync state at /state/audible_downloaded.json.
+    {}
   roms:
     download_path: "/media/roms"
     dat_path: "/media/roms/_dat"

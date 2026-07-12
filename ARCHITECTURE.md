@@ -264,7 +264,7 @@ Providers handle content types that need **more than an API call** — they wrap
 
 | Provider | Tools | External Dependency | Acquisition Pattern |
 |---|---|---|---|
-| `youtube.py` | 4 | yt-dlp (subprocess) | Direct download + metadata |
+| `youtube.py` | 6 | yt-dlp (subprocess) | Direct download + metadata + subscriptions |
 | `bandcamp.py` | 2 | bandcamp-downloader (subprocess) | Direct download |
 | `audible.py` | 5 | audible-cli (subprocess) | Authenticated extraction |
 | `rom.py` | 4 | internetarchive (subprocess) | Direct download + DAT verify |
@@ -289,7 +289,8 @@ APScheduler's `AsyncIOScheduler` runs on the FastAPI server's event loop (starte
 |---|---|---|
 | Health check | Every 30 min | `check_all_health()` across all services |
 | Missing episodes | Every 12 hours | `search_missing_episodes()` + `search_missing_movies()` |
-| Daily cleanup | 3:00 AM daily | Remove `.tmp`, `.part`, incomplete files |
+| Daily cleanup | 3:00 AM daily | Read-only daily report: runs `check_all_health()` and logs the result (deletes nothing) |
+| Weekly scan | Sunday 2:00 AM | `emby_scan()` — full Emby library scan |
 
 ### 2.9 Interfaces (`src/interfaces/`)
 
@@ -450,7 +451,7 @@ settings.emby            # → {"url": "http://...", "api_key": "..."}
 settings.sabnzbd         # → {"url": "http://...", "api_key": "..."}
 ```
 
-**Note:** `download_station` config is not yet a property on `Settings` — it reads from the raw `_data` dict. Adding it is a one-line change in `config.py`.
+**Note:** every service section — including `download_station`, `youtube`, `audible`, `roms`, `library`, and `scheduler` — is exposed as a `@property` on `Settings`.
 
 ---
 

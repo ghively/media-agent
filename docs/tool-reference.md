@@ -205,6 +205,94 @@ or
 
 ---
 
+### `sonarr_list_quality_profiles() -> str`
+
+List available quality profiles for TV shows.
+
+**Parameters:** None
+
+**API Called:** Sonarr v3 API - `GET /api/v3/qualityprofile`
+
+**Example:**
+```bash
+sonarr_list_quality_profiles()
+```
+
+**Returns:** Profile names with IDs, e.g.:
+```
+Available Sonarr quality profiles:
+
+  • HD-1080p (ID: 4)
+  • Ultra-HD (ID: 5)
+```
+
+---
+
+### `sonarr_list_root_folders() -> str`
+
+List available root folders for TV shows.
+
+**Parameters:** None
+
+**API Called:** Sonarr v3 API - `GET /api/v3/rootfolder`
+
+**Example:**
+```bash
+sonarr_list_root_folders()
+```
+
+**Returns:** Folder paths with IDs and free space, e.g.:
+```
+Available Sonarr root folders:
+
+  • /media/tv (ID: 1, Free: 1099511627776)
+```
+
+---
+
+### `refresh_tv_show(series_id: int) -> str`
+
+Refresh a TV show's metadata and trigger a disk scan.
+
+**Parameters:**
+- `series_id` (int): Sonarr internal series ID
+
+**API Called:** Sonarr v3 API - `POST /api/v3/command` (`RefreshSeries`)
+
+**Example:**
+```bash
+refresh_tv_show(series_id=42)
+```
+
+**Returns:** Confirmation, e.g.:
+```
+✅ Refresh triggered for series ID 42.
+```
+
+---
+
+### `search_season(series_id: int, season_number: int) -> str`
+
+Search for all episodes in a specific season.
+
+**Parameters:**
+- `series_id` (int): Sonarr internal series ID
+- `season_number` (int): Season number to search
+
+**API Called:** Sonarr v3 API - `POST /api/v3/command` (`SeasonSearch`)
+
+**Example:**
+```bash
+search_season(series_id=42, season_number=3)
+```
+
+**Returns:** Confirmation, e.g.:
+```
+✅ Season search triggered for series ID 42, season 3.
+```
+
+---
+
 ## Movies/Radarr
 
 ### `search_movie(query: str) -> str`
@@ -355,6 +443,72 @@ get_movie_health()
 **Returns:** Health check results, e.g.:
 ```
 ✅ Radarr health: all checks passing.
+```
+
+---
+
+### `radarr_list_quality_profiles() -> str`
+
+List available quality profiles for movies.
+
+**Parameters:** None
+
+**API Called:** Radarr v3 API - `GET /api/v3/qualityprofile`
+
+**Example:**
+```bash
+radarr_list_quality_profiles()
+```
+
+**Returns:** Profile names with IDs, e.g.:
+```
+Available Radarr quality profiles:
+
+  • HD-1080p (ID: 4)
+  • Ultra-HD (ID: 5)
+```
+
+---
+
+### `radarr_list_root_folders() -> str`
+
+List available root folders for movies.
+
+**Parameters:** None
+
+**API Called:** Radarr v3 API - `GET /api/v3/rootfolder`
+
+**Example:**
+```bash
+radarr_list_root_folders()
+```
+
+**Returns:** Folder paths with IDs and free space, e.g.:
+```
+Available Radarr root folders:
+
+  • /media/movies (ID: 1, Free: 1099511627776)
+```
+
+---
+
+### `refresh_movie(movie_id: int) -> str`
+
+Refresh a movie's metadata and trigger a disk scan.
+
+**Parameters:**
+- `movie_id` (int): Radarr internal movie ID
+
+**API Called:** Radarr v3 API - `POST /api/v3/command` (`RefreshMovie`)
+
+**Example:**
+```bash
+refresh_movie(movie_id=17)
+```
+
+**Returns:** Confirmation, e.g.:
+```
+✅ Refresh triggered for movie ID 17.
 ```
 
 ---
@@ -686,13 +840,13 @@ sabnzbd_resume()
 
 ---
 
-### `sabnzbd_add_nzb(nzb_url: str, category: str = "") -> str`
+### `sabnzbd_add_nzb(nzb_url: str, category: str = "movies") -> str`
 
 Add an NZB to SABnzbd for download.
 
 **Parameters:**
-- `nzb_url` (str): URL to the .nzb file or magnet link
-- `category` (str, optional): Category (e.g., 'tv', 'movies', 'music')
+- `nzb_url` (str): URL to the .nzb file
+- `category` (str, optional): Category — 'movies' (default), 'tv', 'music', or 'books'
 
 **API Called:** SABnzbd API - `GET /api?mode=addurl&name=...`
 
@@ -901,32 +1055,34 @@ Found 3 result(s) for 'matrix':
      Status: finished, Size: 2147483648 bytes
      [id: dbid_5678]
 
-To download a result, use: download_media(result_id)
-where result_id is the number from the list above.
+To download: use the appropriate add tool:
+  • Movies: add_movie(tmdb_id=N, title="...")
+  • TV:     add_tv_show(tvdb_id=N, title="...")
+The tmdbId / tvdbId numbers are shown in brackets above.
 ```
 
 ---
 
-### `download_media(result_id: int) -> str`
+### `download_media(source: str, title: str, source_id: int) -> str`
 
-Download a media result by its position number from search_media().
-
-This tool triggers the appropriate download action based on the result's source.
-For deep integration, re-run search_media and call the specific tool.
+Download media by specifying the source and ID directly.
+Dispatches to `add_movie` (Radarr) or `add_tv_show` (Sonarr) based on `source`.
 
 **Parameters:**
-- `result_id` (int): The 1-based index from the search_media results list
+- `source` (str): `'movie'` for Radarr, `'tv'` for Sonarr
+- `title` (str): The title of the media
+- `source_id` (int): tmdbId for movies, tvdbId for TV shows
 
-**API Called:** Dispatches to source-specific tools (add_tv_show, add_movie, etc.)
+**API Called:** Dispatches to source-specific tools (add_movie, add_tv_show)
 
 **Example:**
 ```bash
-download_media(result_id=1)
+download_media(source="movie", title="The Matrix", source_id=603)
 ```
 
-**Returns:** Action guidance, e.g.:
+**Returns:** The dispatched add tool's confirmation, e.g.:
 ```
-🔄 Download triggered for result #1.
+✅ Added 'The Matrix' to Radarr.
 
 To complete the action, use the appropriate source-specific tool:
   • TV show:   add_tv_show(tvdb_id=..., title=...)     [sonarr.py]
@@ -1123,8 +1279,7 @@ bandcamp_download(url="https://artist.bandcamp.com/album/album-name")
 ✅ Downloaded 12 track(s) to /tmp/bandcamp/album-name
 Artist: Artist Name
 Album: Album Name
-
-Run `library_sort_dir` to organize into the media library.
+✅ Emby library scan triggered.
 ```
 
 ---
@@ -1196,7 +1351,7 @@ audible_download(asin="B00X4WHP5E")
 ✅ Downloaded and decrypted: Dune.m4b
    Size: 450.2 MB
    Path: /tmp/audible_downloads/Dune.m4b
-   Run `library_sort_dir` to organize into the audiobooks library.
+   ✅ Emby library scan triggered.
 ```
 
 ---
@@ -1589,8 +1744,8 @@ All tools read configuration from `config/settings.yaml` using the `get_settings
 - `EMBY_API_KEY` - Emby API key
 
 **Optional environment variables:**
-- `DS_USER` - Download Station username
-- `DS_PASS` - Download Station password
+- `DS_USERNAME` - Download Station username
+- `DS_PASSWORD` - Download Station password
 
 **Service URLs configured in settings.yaml:**
 ```yaml
@@ -1599,7 +1754,7 @@ services:
     url: "http://<YOUR_NAS_IP>:8989"
     api_key: "${SONARR_API_KEY}"
   radarr:
-    url: "http://<YOUR_NAS_IP>:7878"
+    url: "http://<YOUR_NAS_IP>:8310"
     api_key: "${RADARR_API_KEY}"
   emby:
     url: "http://<YOUR_NAS_IP>:8096"
@@ -1609,8 +1764,8 @@ services:
     api_key: "${SABNZBD_API_KEY}"
   download_station:
     url: "http://<YOUR_NAS_IP>:5000"
-    username: "${DS_USER}"
-    password: "${DS_PASS}"
+    username: "${DS_USERNAME}"
+    password: "${DS_PASSWORD}"
 ```
 
 ---
@@ -1638,20 +1793,4 @@ services:
 
 ---
 
-## Unregistered Source Functions (Not in Registry)
-
-The following functions exist in the source code but are **not imported** in `src/tools/registry.py`. They are available to register when needed:
-
-| Function | Source File | Purpose |
-|---|---|---|
-| `download_station_info` | `src/tools/download_station.py` | Get Download Station task details |
-| `download_station_stats` | `src/tools/download_station.py` | Get Download Station global statistics |
-| `sabnzbd_add_nzb` | `src/tools/sabnzbd.py` | Add an NZB URL to SABnzbd queue |
-| `youtube_get_info` | `src/providers/youtube.py` | Get video metadata without downloading |
-| `youtube_remove_subscription` | `src/providers/youtube.py` | Remove a channel subscription |
-
-To activate any of these, add the import to `src/tools/registry.py` and include in `all_tools`.
-
----
-
-*Generated from media-agent source files. Last updated: 2026-07-11*
+*Generated from media-agent source files. Last updated: 2026-07-12*

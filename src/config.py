@@ -6,9 +6,14 @@ from pathlib import Path
 
 
 def _substitute_env(value):
-    """Recursively substitute ${ENV_VAR} patterns with environment variables."""
+    """Recursively substitute ${ENV_VAR} patterns with environment variables.
+
+    Unset vars substitute to "" — leaving the literal ``${VAR}`` in place
+    would turn e.g. an unset MEDIA_AGENT_API_KEY into a real (and publicly
+    known) API key, silently enabling auth with a guessable token.
+    """
     if isinstance(value, str):
-        return re.sub(r'\$\{([^}]+)\}', lambda m: os.environ.get(m.group(1), m.group(0)), value)
+        return re.sub(r'\$\{([^}]+)\}', lambda m: os.environ.get(m.group(1), ""), value)
     elif isinstance(value, dict):
         return {k: _substitute_env(v) for k, v in value.items()}
     elif isinstance(value, list):
