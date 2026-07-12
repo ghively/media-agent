@@ -400,7 +400,7 @@ def _check_local_tools(settings) -> dict:
     # ROMs — check if internetarchive is installed
     ia_available = shutil.which("ia") is not None
     roms_cfg = settings.roms
-    rom_dir = Path(roms_cfg.get("library_dir", "/media/roms"))
+    rom_dir = Path(roms_cfg.get("library_dir") or roms_cfg.get("download_path") or "/media/roms")
     rom_count = 0
     if rom_dir.exists():
         try:

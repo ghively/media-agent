@@ -197,6 +197,7 @@ LangGraph ReAct Agent (LLM + 70 tools)
     ├── Bandcamp tools (2)  → Music downloads
     ├── Audible tools (5)   → Audiobook management
     ├── ROM tools (4)       → Retro game collections
+    ├── ROM library (4)     → Header ID, dedup, problem checks
     └── Library tools (5)   → Inventory, duplicates, naming
     │
     ▼
@@ -241,7 +242,7 @@ If you're an AI agent being asked to deploy this, start with `CLAUDE.md` — it 
 
 ---
 
-## Capabilities (66 Tools)
+## Capabilities (70 Tools)
 
 | Category | Tools | What you can ask |
 |---|---|---|
@@ -256,6 +257,7 @@ If you're an AI agent being asked to deploy this, start with `CLAUDE.md` — it 
 | **Bandcamp** | 2 | Download individual albums or entire purchased collection |
 | **Audible** | 5 | List library, download books, sync new titles, set up/check auth |
 | **ROMs** | 4 | Search Internet Archive collections, download ROM sets, verify with DAT files, browse by platform |
+| **ROM Library** | 4 | Scan and identify ROMs by file header, inspect a single ROM, find duplicates (CRC), check for problems |
 | **Library** | 5 | Build filesystem inventory, find duplicates, check and fix naming conventions, undo renames |
 
 ---

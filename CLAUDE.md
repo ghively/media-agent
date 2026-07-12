@@ -72,7 +72,7 @@ Formatted response → User
 **LLM:** qwen3.5:9b via Ollama (local, free, ~35 tok/s).  
 **Fast path:** common commands are answered deterministically by the router — they work even when the LLM is down.  
 **Circuit breaker:** Local-first, falls back to hosted API after 3 failures (OPEN state skips straight to hosted).  
-**Scheduler:** AsyncIOScheduler running in the main event loop (health checks, missing searches, cleanup).
+**Scheduler:** AsyncIOScheduler running in the main event loop (health checks 30m, missing searches 12h, daily health report 3am, weekly Emby scan Sun 2am).
 
 **Invocation rule:** interfaces never call the compiled graph directly. The pattern is always `try_route()` → on miss `run_agent()`/`stream_agent()` with a `thread_id` (mandatory — the graph has a checkpointer). Router hits are synced into agent memory with `record_exchange()`.
 
