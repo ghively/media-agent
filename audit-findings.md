@@ -1,5 +1,28 @@
 # Media Agent — Code Audit Findings
 
+## 2026-07-12 — Deployment-readiness verification pass
+
+Independent re-verification ahead of deploying to a new box. Functional
+state confirmed by execution, not just reading: **169/169 tests pass, all
+28 source modules import, the registry loads 70 tools (no duplicate
+names), `--serve` boots the API + scheduler (4 jobs), `/health` returns
+200, the deterministic router answers "what's downloading?" with no LLM,
+and the agent path degrades to a friendly error when Ollama is
+unreachable.** Local-only LLM operation verified: with no hosted fallback
+configured the circuit breaker always returns the local model — no crash.
+
+New findings fixed in this pass:
+
+| Severity | Finding | Fix |
+|---|---|---|
+| 🟠 Med | Unset `${VAR}` in settings.yaml was left as a literal string, so an unset `MEDIA_AGENT_API_KEY` **enabled** auth with the publicly-known literal `${MEDIA_AGENT_API_KEY}` as the accepted Bearer token (verified live) — contradicting the documented "no key = no auth" | `_substitute_env` now substitutes unset vars with `""` (`src/config.py`) |
+| 🟠 Med | Fresh-box blockers undocumented: compose requires the pre-existing external `agent-lab_agent-mesh` network; default `llm.ollama_url` points at a homelab-only hostname; `/media` is never mounted by compose | New-box checklist + `llm.ollama_url` step added to `docs/deployment-guide.md` |
+| 🟡 Low | tool-reference.md: "Unregistered Source Functions" section was false (all 5 listed tools ARE registered); `download_media` documented with a nonexistent `result_id` signature; 7 registered sonarr/radarr tools had no entries; `DS_USER`/`DS_PASS` (real names: `DS_USERNAME`/`DS_PASSWORD`); phantom `library_sort_dir` tool; wrong `sabnzbd_add_nzb` default; radarr port 7878 vs the standardized 8310 | All corrected |
+| 🟡 Low | README self-contradiction: "70 tools" in prose but "66 Tools" header and breakdowns omitting the 4 `rom_tools.py` tools; ARCHITECTURE said youtube provider has 4 tools (has 6), described daily cleanup as deleting `.tmp`/`.part` files (it is a read-only health report), omitted the weekly Emby scan job, and carried a stale "download_station is not a property" note; development-guide quoted the pre-rewrite SYSTEM_PROMPT (tool-name lists were deliberately removed in `72478a4`); docs/README line/file counts stale | All corrected |
+| 🟡 Low | Dashboard read `roms.library_dir` (example config defines `download_path`); example config advertised `audible.auth_file`/`download_path` keys the provider never reads (it uses fixed paths) | Dashboard accepts both keys; example config now states the real fixed paths |
+| ⬜ Note | Open WebUI instructions said to connect from another host to `http://your-gpu-host:8088/v1`, unreachable through the loopback-only port bind | Guide corrected (same host / shared network / reverse proxy) |
+
+
 Full-tree audit of the repository (~5,400 lines), **2026-07-11**. Each finding
 was verified against the actual code (file:line quoted) and, where a fix was
 applied, re-verified after the change.

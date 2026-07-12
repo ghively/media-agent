@@ -34,8 +34,8 @@
 
 ## Project Facts
 
-- **70 tools** across 12 source files
-- **4,230 lines** of Python
+- **70 tools** across 13 source files
+- **~8,000 lines** of Python
 - **1 Docker container** on your-gpu-host
 - **3 physical hosts** in the media stack (your-gpu-host, your-nas, your-media-host)
 - **Local LLM** (Qwen 3.5 9B via Ollama — zero API cost)
