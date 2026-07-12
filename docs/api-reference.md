@@ -62,7 +62,7 @@ POST /v1/chat/completions
 | `model` | string | No (default: `"media-agent"`) | Must be `"media-agent"` |
 | `messages` | array | Yes | Chat messages in OpenAI format |
 | `stream` | boolean | No (default: `false`) | Enable SSE streaming |
-| `temperature` | float | No (default: `0`) | Ignored — agent uses temperature=0 |
+| `temperature` | float | No (default: `null`) | Accepted but ignored — the agent uses `llm.temperature` from settings.yaml |
 
 **Message Format:**
 ```json

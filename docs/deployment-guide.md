@@ -58,6 +58,40 @@ services:
     api_key: "${SABNZBD_API_KEY}"
 ```
 
+**Also check `llm.ollama_url`.** The default
+(`http://agent-lab-ollama-1:11435`) only resolves on the original
+agent-lab host. Point it at your own Ollama instance — a stock install
+listens on port **11434** (e.g. `http://<OLLAMA_HOST>:11434`) — and make
+sure the model is pulled (`ollama pull qwen3.5:9b`, or change
+`llm.ollama_model` to a tool-calling model you have). The agent starts
+fine without an LLM (the deterministic router still answers common
+commands), but conversational queries will fail until this URL is right.
+
+### 3b. New-box checklist
+
+If this is **not** the original agent-lab host, two more things before
+building:
+
+1. **The `agent-mesh` Docker network.** `docker-compose.yml` declares an
+   external network `agent-lab_agent-mesh`; compose refuses to start if it
+   doesn't exist. Either create it:
+   ```bash
+   docker network create agent-lab_agent-mesh
+   ```
+   or, if your Ollama isn't containerized on a shared network, delete the
+   `agent-mesh` entries from the `networks:` blocks in `docker-compose.yml`
+   and reach Ollama by host IP instead.
+
+2. **Mount your media library.** Compose mounts only `./config` and the
+   `/state` volume. The YouTube/Audible/ROM download paths and the library
+   scanner default to `/media/...` — without a bind mount those writes land
+   inside the container and vanish on rebuild. Add one under `volumes:`:
+   ```yaml
+       - /path/to/your/media:/media
+   ```
+   (Skip this if you only use the API-backed tools — Sonarr, Radarr, Emby,
+   SABnzbd, Download Station — which run on their own hosts.)
+
 ### 4. Build and Start
 
 ```bash
@@ -116,9 +150,15 @@ docker compose build --no-cache && docker compose up -d
 
 ## Connecting Open WebUI
 
+> **Note:** the compose file binds the port to `127.0.0.1` only. From
+> another machine, `http://<host>:8088` is **not** reachable — connect from
+> the same host, join the containers to a shared Docker network (use
+> `http://media-agent:8088/v1`), or front it with an authenticated reverse
+> proxy / VPN before widening the bind.
+
 1. Open Open WebUI → Settings → Connections
 2. Add a new OpenAI-compatible connection:
-   - **URL:** `http://your-gpu-host:8088/v1`
+   - **URL:** `http://localhost:8088/v1` (same host; see note above)
    - **API Key:** The value of `MEDIA_AGENT_API_KEY` from your `.env`
 3. Save. The "media-agent" model appears in the model dropdown.
 4. Start chatting.
@@ -148,7 +188,7 @@ docker compose build --no-cache && docker compose up -d
 | `RADARR_API_KEY` | Yes | — | Radarr API key |
 | `EMBY_API_KEY` | Yes | — | Emby API key |
 | `SABNZBD_API_KEY` | Yes | — | SABnzbd API key |
-| `MEDIA_AGENT_API_KEY` | Yes | — | Bearer token for API auth |
+| `MEDIA_AGENT_API_KEY` | Recommended | — | Bearer token for API auth. Unset = auth disabled (safe only behind the default loopback bind) |
 | `HOSTED_LLM_URL` | No | — | Fallback LLM endpoint |
 | `HOSTED_LLM_KEY` | No | — | Fallback LLM API key |
 | `HOSTED_LLM_MODEL` | No | — | Fallback LLM model name |

@@ -609,85 +609,40 @@ Add to your `.env` file:
 LIDARR_API_KEY=your_api_key_here
 ```
 
-**Note:** The `download_station` config is a known inconsistency — it reads directly from `_data` instead of using a property. When adding new services, always follow the property pattern.
+**Note:** Every service section (including `download_station`) is exposed as a `@property` on `Settings`. When adding new services, always follow the property pattern.
 
 ---
 
 ## 6. How to Modify the System Prompt
 
-The system prompt lives in `src/graphs/conversational.py`:
+The system prompt lives in `src/graphs/conversational.py` (`SYSTEM_PROMPT`).
 
-```python
-SYSTEM_PROMPT = """You are Media Agent, a helpful assistant that manages a personal media library.
-
-You have these capabilities:
-• TV shows: search_tv, add_tv_show, list_tv_shows, get_tv_queue, get_tv_history,
-  search_missing_episodes, get_tv_calendar, get_tv_health
-• Movies: search_movie, add_movie, list_movies, get_movie_queue, get_movie_history,
-  search_missing_movies, get_movie_health
-• Emby library: emby_search, emby_recent, emby_libraries, emby_scan, emby_get_item
-• Health: check_all_health, check_disk_space, check_queue_status
-• Music: bandcamp_download, bandcamp_download_collection
-• Audiobooks: audible_list_library, audible_download, audible_download_new,
-  audible_setup_auth, audible_check_auth
-• Classic games: rom_search_archive, rom_download, rom_verify_dat, rom_get_collection
-
-Available phase 2 tools (when services are deployed):
-• Search all: search_media, download_media
-• Download clients: sabnzbd_queue, sabnzbd_pause, sabnzbd_resume
-• YouTube: youtube_download, youtube_add_subscription
-
-Guidelines:
-- When the user asks to add something, search first, confirm the match, then add.
-- Format responses concisely with bullet points.
-- Use ✅ for success, ❌ for errors, ⚠️ for warnings.
-- If a tool fails, explain what went wrong in plain language.
-- If a search returns multiple results, list them and ask which one the user wants.
-- Keep responses short — you're a tool-using agent, not a chatbot.
-- For downloads that produce local files (Bandcamp, Audible, ROMs, YouTube), tell the user
-  to run library_sort_dir to organize the files into the library.
-"""
-```
+**Important: the prompt deliberately contains NO tool names.** A 9B local
+model that sees tool names in prose starts hallucinating JSON tool-call
+syntax into its replies. The prompt instead describes *capabilities* in
+natural language (a "WHAT YOU DO" section: TV & movies, library, downloads,
+classic games, YouTube, music, audiobooks) and gives conversational style
+rules ("ZERO JSON, EVER", speak naturally, use tools silently). The LLM
+learns the actual tool names and schemas from the tool definitions that
+LangGraph binds to the model — not from the prompt.
 
 ### When to modify the system prompt
 
-1. **Adding a new tool:** Add it to the capabilities list so the LLM knows it exists.
-2. **Changing agent behavior:** Adjust the "Guidelines" section.
-3. **Adding new phases:** Update the "Available phase N tools" section.
-4. **Refining personality:** Change the opening sentence.
-
-### Example: Adding your new tool
-
-```python
-SYSTEM_PROMPT = """You are Media Agent, a helpful assistant that manages a personal media library.
-
-You have these capabilities:
-• TV shows: search_tv, add_tv_show, list_tv_shows, get_tv_queue, get_tv_history,
-  search_missing_episodes, get_tv_calendar, get_tv_health
-• Movies: search_movie, add_movie, list_movies, get_movie_queue, get_movie_history,
-  search_missing_movies, get_movie_health
-• Emby library: emby_search, emby_recent, emby_libraries, emby_scan, emby_get_item
-• Library management: pause_all_downloads  # ← New tool
-# ... rest of capabilities ...
-
-Guidelines:
-- When the user asks to add something, search first, confirm the match, then add.
-- Format responses concisely with bullet points.
-- Use ✅ for success, ❌ for errors, ⚠️ for warnings.
-- If a tool fails, explain what went wrong in plain language.
-- If a search returns multiple results, list them and ask which one the user wants.
-- Keep responses short — you're a tool-using agent, not a chatbot.
-- For downloads that produce local files (Bandcamp, Audible, ROMs, YouTube), tell the user
-  to run library_sort_dir to organize the files into the library.
-"""
-```
+1. **Adding a new capability area:** Describe it in plain language in the
+   "WHAT YOU DO" section (e.g. "Podcasts: subscribe to shows and fetch new
+   episodes"). Do **not** list the tool function names.
+2. **Changing agent behavior:** Adjust the style/behavior rules.
+3. **Refining personality:** Change the opening paragraphs.
 
 ### Important considerations
 
 - **Keep it concise:** Longer prompts consume more tokens with every request.
-- **Be explicit:** List tool names exactly as they appear in the code.
-- **Group tools logically:** Related tools together (TV, Movies, Health, etc.).
-- **Update after every tool change:** The LLM won't use tools it doesn't know about.
+- **Never list tool names:** They cause small local models to emit raw
+  tool-call JSON into chat replies (this was a real bug — see git history).
+- **Group capabilities logically:** Related features together (TV, Movies, Health, etc.).
+- **Tool discovery is automatic:** New tools registered in `registry.py` are
+  bound to the model and usable without any prompt change; the prompt only
+  needs updating when a whole new capability *area* should be advertised.
 
 ---
 
