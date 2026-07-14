@@ -44,6 +44,15 @@ def _client() -> LidarrClient | None:
     return LidarrClient(s["url"], s["api_key"])
 
 
+async def _lookup_artists(query: str) -> list[dict] | None:
+    """Raw artist lookup for the router's deterministic add-artist flow.
+    Returns None when Lidarr isn't configured; raises on request failure."""
+    client = _client()
+    if client is None:
+        return None
+    return await client._get("/artist/lookup", params={"term": query})
+
+
 @tool
 async def search_artist(query: str) -> str:
     """Search Lidarr for a music artist by name. Returns matches with the

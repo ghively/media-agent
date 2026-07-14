@@ -112,10 +112,11 @@ def _register_routes(app: FastAPI) -> None:
             from src.graphs.conversational import record_exchange, stream_agent
             from src.graphs.router import pending_suggestions, try_route
 
-            def _final(full: str) -> str:
+            def _final(full: str, via: str) -> str:
                 # The final event carries quick-reply suggestions when the
-                # router left a confirmation pending (yes/no/pick buttons).
-                payload = {"content": "", "done": True, "full": full}
+                # router left a confirmation pending (yes/no/pick buttons),
+                # plus which path answered ('router' = instant, no LLM).
+                payload = {"content": "", "done": True, "full": full, "via": via}
                 suggestions = pending_suggestions(thread_id)
                 if suggestions:
                     payload["suggest"] = suggestions
@@ -127,7 +128,7 @@ def _register_routes(app: FastAPI) -> None:
                 if routed is not None:
                     await record_exchange(thread_id, req.message, routed)
                     yield f"data: {_json.dumps({'content': routed, 'done': False})}\n\n"
-                    yield _final(routed)
+                    yield _final(routed, "router")
                     return
 
                 collected = []
@@ -135,7 +136,7 @@ def _register_routes(app: FastAPI) -> None:
                     collected.append(text)
                     yield f"data: {_json.dumps({'content': text, 'done': False})}\n\n"
 
-                yield _final("".join(collected) or "No response.")
+                yield _final("".join(collected) or "No response.", "llm")
             except Exception as e:
                 yield f"data: {_json.dumps({'content': '', 'done': True, 'error': f'❌ {type(e).__name__}: {e}'})}\n\n"
 
@@ -229,7 +230,11 @@ async def _gather_all_data() -> dict:
     # Check local tools availability (no remote health endpoint — just check config).
     # Offloaded: it does a blocking rglob over the ROM library.
     local_tools = await asyncio.to_thread(_check_local_tools, settings)
+    # Optional service integrations (Komga/Calibre/Lidarr/Prowlarr/qBittorrent)
+    # get a reachability entry when configured — rendered in the same strip.
+    local_tools.update(await _gather_integrations(settings))
 
+    from src.graphs.router import get_stats
     all_healthy = all(s.get("status") == "healthy" for s in services.values())
     return {
         "timestamp": now,
@@ -238,7 +243,81 @@ async def _gather_all_data() -> dict:
         "activity": activity,
         "disk_space": disk_space,
         "local_tools": local_tools,
+        # Deterministic-router coverage — how often the agent answered
+        # without any LLM call. The dashboard surfaces this.
+        "router_stats": get_stats(),
     }
+
+
+async def _probe(name: str, icon_name: str, coro, detail: str) -> tuple[str, dict]:
+    """Run one integration reachability check → a local_tools-style entry."""
+    try:
+        await coro
+        return name, {"name": icon_name, "status": "available",
+                      "emoji": "✅", "info": detail}
+    except Exception as e:
+        return name, {"name": icon_name, "status": "error", "emoji": "❌",
+                      "info": f"unreachable ({type(e).__name__})"}
+
+
+async def _gather_integrations(settings) -> dict:
+    """Reachability entries for configured optional services, in parallel."""
+    import httpx
+
+    probes = []
+
+    async def _arr(url, key, path="/api/v1/system/status"):
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(f"{url.rstrip('/')}{path}",
+                                    headers={"X-Api-Key": key})
+            resp.raise_for_status()
+
+    if settings.lidarr.get("url") and settings.lidarr.get("api_key"):
+        probes.append(_probe("lidarr", "Lidarr",
+                             _arr(settings.lidarr["url"], settings.lidarr["api_key"]),
+                             "music management"))
+    if settings.prowlarr.get("url") and settings.prowlarr.get("api_key"):
+        probes.append(_probe("prowlarr", "Prowlarr",
+                             _arr(settings.prowlarr["url"], settings.prowlarr["api_key"]),
+                             "indexer search"))
+
+    async def _komga():
+        cfg = settings.komga
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(f"{cfg['url'].rstrip('/')}/api/v1/libraries",
+                                    headers={"X-API-Key": cfg["api_key"]})
+            resp.raise_for_status()
+
+    if settings.komga.get("url") and settings.komga.get("api_key"):
+        probes.append(_probe("komga", "Komga", _komga(), "comics & manga"))
+
+    async def _calibre():
+        cfg = settings.calibre
+        auth = (cfg["username"], cfg.get("password", "")) if cfg.get("username") else None
+        async with httpx.AsyncClient(timeout=5, auth=auth) as client:
+            resp = await client.get(f"{cfg['url'].rstrip('/')}/ajax/search",
+                                    params={"query": "", "num": 0})
+            resp.raise_for_status()
+
+    if settings.calibre.get("url"):
+        probes.append(_probe("calibre", "Calibre", _calibre(), "ebooks"))
+
+    async def _qbit():
+        cfg = settings.qbittorrent
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.post(
+                f"{cfg['url'].rstrip('/')}/api/v2/auth/login",
+                data={"username": cfg.get("username", ""),
+                      "password": cfg.get("password", "")})
+            if resp.status_code != 200 or "Ok" not in resp.text:
+                raise RuntimeError("login rejected")
+
+    if settings.qbittorrent.get("url"):
+        probes.append(_probe("qbittorrent", "qBittorrent", _qbit(), "torrents"))
+
+    if not probes:
+        return {}
+    return dict(await asyncio.gather(*probes))
 
 
 async def _gather_sonarr(settings) -> dict:
@@ -852,6 +931,9 @@ _DASHBOARD_HTML = r"""
       <button class="action-btn" onclick="quickAction('list my youtube subscriptions')">YouTube Subs</button>
       <button class="action-btn" onclick="quickAction('check youtube subscriptions')">New Uploads</button>
       <button class="action-btn" onclick="quickAction('list my audiobooks')">Audiobooks</button>
+      <button class="action-btn" onclick="quickAction('list my podcasts')">Podcasts</button>
+      <button class="action-btn" onclick="quickAction('list my artists')">Artists</button>
+      <button class="action-btn" onclick="quickAction('help')">Help</button>
     </div>
   </div>
 
@@ -907,7 +989,7 @@ _DASHBOARD_HTML = r"""
     </div>
   </div>
 
-  <div class="footer">Media Agent &mdash; auto-refresh 30s &mdash; <span id="tool-count">--</span> tools loaded</div>
+  <div class="footer">Media Agent &mdash; auto-refresh 30s &mdash; <span id="instant-stat">⚡ warming up</span></div>
 
 </div>
 
@@ -1032,6 +1114,12 @@ function renderData(data) {
   }
   renderActivity(data.activity);
   renderLocalTools(data.local_tools);
+
+  const rs = data.router_stats;
+  if (rs && rs.total > 0) {
+    document.getElementById("instant-stat").textContent =
+      `⚡ ${rs.instant_pct}% of ${rs.total} messages answered instantly (no LLM)`;
+  }
 }
 
 async function fetchData() {

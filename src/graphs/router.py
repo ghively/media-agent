@@ -100,19 +100,60 @@ def pending_suggestions(thread_id: str) -> list[str] | None:
     return picks + ["no"]
 
 
+# ── router coverage stats ────────────────────────────────────────────────────
+# How many messages the deterministic path answered vs. handed to the LLM.
+# Surfaced on the dashboard — the whole point of this router is keeping the
+# system usable with the lightest possible model.
+
+_stats = {"router": 0, "llm": 0}
+
+
+def get_stats() -> dict:
+    total = _stats["router"] + _stats["llm"]
+    return {**_stats, "total": total,
+            "instant_pct": round(_stats["router"] / total * 100) if total else 0}
+
+
 # ── text normalization ──────────────────────────────────────────────────────
 
 _PUNCT_RE = re.compile(r"[?!.]+$")
 _WS_RE = re.compile(r"\s+")
 
+# Politeness/filler that light models shouldn't be needed to see through:
+# "hey, can you check the queue please" must route the same as "check the
+# queue". Stripped repeatedly from the ends; never from the middle (titles
+# like "Thank You for Smoking" stay intact when preceded by a verb).
+_LEAD_FILLER_RE = re.compile(
+    r"^(?:please|pls|hey|hi|hello|yo|ok|okay|so|umm?|now|also|and|then|"
+    r"can you|could you|would you|will you|can u)\s+", re.IGNORECASE)
+_TAIL_FILLER_RE = re.compile(
+    r"\s+(?:please|pls|thanks|thank you|thx|for me|(?:right )?now|rn)$",
+    re.IGNORECASE)
+
+
+def _strip_filler(text: str) -> str:
+    """Peel filler off both ends. If everything was filler ("ok", "please"),
+    return the original so confirmation words like "ok" still resolve
+    pending yes/no state."""
+    original = text
+    for _ in range(4):
+        stripped = _LEAD_FILLER_RE.sub("", text)
+        stripped = _TAIL_FILLER_RE.sub("", stripped)
+        if stripped == text:
+            break
+        text = stripped
+    text = text.strip(" ,")
+    return text if text else original
+
 
 def _normalize(text: str) -> str:
-    """Collapse whitespace and strip trailing punctuation. Case is preserved
-    (URLs, ASINs, paths, and channel names are case-sensitive); all patterns
-    compile with re.IGNORECASE instead."""
+    """Collapse whitespace, strip trailing punctuation and politeness filler.
+    Case is preserved (URLs, ASINs, paths, and channel names are
+    case-sensitive); all patterns compile with re.IGNORECASE instead."""
     text = text.strip().replace("’", "'")
     text = _PUNCT_RE.sub("", text).strip()
-    return _WS_RE.sub(" ", text)
+    text = _WS_RE.sub(" ", text)
+    return _strip_filler(text)
 
 
 # ── media-type extraction for search/add queries ────────────────────────────
@@ -260,7 +301,9 @@ async def _rom_search_structured(query: str, platform: str) -> list[dict]:
     return results
 
 
-_TYPE_LABELS = {"tv": "TV show", "movie": "movie", "rom": "ROM set"}
+_TYPE_LABELS = {"tv": "TV show", "movie": "movie", "rom": "ROM set",
+                "audiobook": "audiobook", "artist": "artist",
+                "release": "release"}
 
 
 def _format_results(results: list[dict], query: str, auto_add: bool) -> str:
@@ -279,8 +322,32 @@ def _format_results(results: list[dict], query: str, auto_add: bool) -> str:
     return "\n".join(lines)
 
 
+async def _queue_release(result: dict) -> str:
+    """Queue a Prowlarr release with the right download client."""
+    url = result.get("magnet_url") or result.get("download_url")
+    if not url:
+        return "❌ That release has no usable download link."
+    is_torrent = url.startswith("magnet:") or result.get("protocol") == "torrent"
+    if is_torrent:
+        try:
+            from src.config import get_settings
+            if get_settings().qbittorrent.get("url"):
+                from src.tools.qbittorrent import qbittorrent_add
+                return await qbittorrent_add.ainvoke({"url": url})
+        except Exception:
+            pass
+        try:
+            from src.tools.download_station import download_station_add
+            return await download_station_add.ainvoke({"url": url})
+        except ImportError:
+            return "❌ No torrent client is configured for this release."
+    from src.tools.sabnzbd import sabnzbd_add_nzb
+    return await sabnzbd_add_nzb.ainvoke({"nzb_url": url})
+
+
 async def _add_result(result: dict) -> str:
-    """Execute the selected search result (Sonarr, Radarr, or ROM download)."""
+    """Execute the selected search result (Sonarr, Radarr, ROM, audiobook,
+    artist, or indexer release)."""
     title = str(result.get("title", "Unknown"))
     source_id = result.get("id")
     source_type = result.get("source_type")
@@ -289,6 +356,15 @@ async def _add_result(result: dict) -> str:
     if source_type == "movie":
         from src.tools.radarr import add_movie
         return await add_movie.ainvoke({"tmdb_id": int(source_id), "title": title})
+    if source_type == "audiobook":
+        from src.providers.audible import audible_download
+        return await audible_download.ainvoke({"asin": str(source_id)})
+    if source_type == "artist":
+        from src.tools.lidarr import add_artist
+        return await add_artist.ainvoke(
+            {"foreign_artist_id": str(source_id), "name": title})
+    if source_type == "release":
+        return await _queue_release(result)
     if source_type == "rom":
         from src.providers.rom import rom_download
         # The user already picked this set from numbered results — that IS
@@ -845,11 +921,92 @@ _ASIN_RE = re.compile(r"^[A-Za-z0-9]{10}$")
 
 async def _h_audible_download(match, thread_id):
     rest = match.group("rest").strip(" \"'")
+    from src.providers.audible import audible_download
     if _ASIN_RE.match(rest):
-        from src.providers.audible import audible_download
         return await audible_download.ainvoke({"asin": rest.upper()})
-    # A title, not an ASIN — the LLM can look up the ASIN in the library.
-    return None
+
+    # A title, not an ASIN — resolve it deterministically from the library
+    # so no LLM round-trip is needed.
+    try:
+        from src.providers.audible import _fetch_library
+        books = await _fetch_library()
+    except Exception:
+        return None  # library unavailable — let the LLM try
+    q = rest.lower()
+    matches = [b for b in books if q in (b.get("title") or "").lower()][:5]
+    if not matches:
+        return (f"I couldn't find '{rest}' in your Audible library. "
+                "Say 'list my audiobooks' to browse it.")
+    if len(matches) == 1:
+        book = matches[0]
+        asin, title = book.get("asin", ""), book.get("title", rest)
+
+        async def _dl():
+            return await audible_download.ainvoke({"asin": asin})
+
+        return _confirm_action(
+            thread_id, f"Download '{title}' ({asin})? (yes/no)", _dl)
+    results = [{
+        "title": b.get("title", "?"), "year": "", "source_type": "audiobook",
+        "id": b.get("asin"), "overview": "", "relevance": 0, "source": "audible",
+    } for b in matches]
+    _set_pending(thread_id, PendingSelection(results=results, auto_add=True))
+    return _format_results(results, rest, auto_add=True)
+
+
+async def _h_add_artist(match, thread_id):
+    name = match.group("name").strip(" \"'")
+    if not name or len(name) > 60:
+        return None
+    try:
+        from src.tools.lidarr import _lookup_artists
+        raw = await _lookup_artists(name)
+    except Exception:
+        return None  # Lidarr up but failing — let the LLM explain
+    if raw is None:
+        return ("❌ Lidarr isn't configured yet — set services.lidarr in "
+                "settings.yaml to manage music artists.")
+    results = [{
+        "title": a.get("artistName", "?"), "year": "", "source_type": "artist",
+        "id": a.get("foreignArtistId"),
+        "overview": ", ".join((a.get("genres") or [])[:3]),
+        "relevance": 0, "source": "lidarr",
+    } for a in raw[:5]]
+    if not results:
+        return f"No artists found matching '{name}'."
+    _set_pending(thread_id, PendingSelection(results=results, auto_add=True))
+    return _format_results(results, name, auto_add=True)
+
+
+# ── meta handlers (greeting / help) ──────────────────────────────────────────
+
+_HELP_TEXT = """Here's what you can ask me — these all answer instantly:
+
+📺 TV & movies: "add Breaking Bad" · "search for Dune" · "what's airing this week?" · "missing episodes" · "list my shows/movies"
+⬇️ Downloads: "what's downloading?" · "pause/resume downloads" · "download speed" · "torrents" · "pause torrents"
+🗄️ Library: "do I have Alien?" · "recently added" · "scan the library" · "find duplicates in /media/movies" · "check naming in /media/tv"
+🎵 Music: "list my artists" · "add artist Radiohead" · "music queue" · paste a Bandcamp link · "sync bandcamp"
+🎧 Audiobooks: "list my audiobooks" · "download audiobook <title or ASIN>" · "sync audible"
+🎙️ Podcasts: "subscribe to podcast <RSS url>" · "list my podcasts" · "check for new podcast episodes"
+▶️ YouTube: paste any link · "subscribe" + channel URL · "check youtube subscriptions"
+📡 Twitch: "is <channel> live?" · "record <channel>'s stream" · "my recordings"
+🕹️ Games: "list my rom collection" · "download snes roms" · "scan my roms" · "any bad roms?"
+📚 Comics & ebooks: "search comics for One Piece" · "recent comics" · "search ebooks for Dune"
+🔍 Deep search: "search the indexers for <anything>" — then pick a result to queue it
+❤️ System: "health check" · "disk space" · "quality profiles" · "help"
+
+Paste any media URL (YouTube, Bandcamp, magnet, .torrent, .nzb) and I'll handle it."""
+
+
+async def _h_help(match, thread_id):
+    return _HELP_TEXT
+
+
+async def _h_greeting(match, thread_id):
+    return ("👋 Hey! I manage your media library — TV, movies, music, "
+            "audiobooks, podcasts, games, and more. Try \"what's "
+            "downloading?\", \"add Breaking Bad\", or say \"help\" for the "
+            "full list.")
 
 
 # ── Podcast handlers ─────────────────────────────────────────────────────────
@@ -938,11 +1095,62 @@ async def _h_music_queue(match, thread_id):
 
 
 async def _h_prowlarr_search(match, thread_id):
+    """Indexer search with a full deterministic grab flow: numbered results
+    whose selection queues the release on the right download client."""
     query = match.group("query").strip(" \"'")
     if not query or len(query) > 80:
         return None
-    from src.tools.prowlarr import prowlarr_search
-    return await prowlarr_search.ainvoke({"query": query})
+    try:
+        from src.tools.prowlarr import _search_raw
+        raw = await _search_raw(query)
+    except Exception:
+        from src.tools.prowlarr import prowlarr_search
+        return await prowlarr_search.ainvoke({"query": query})
+    if raw is None:
+        return ("❌ Prowlarr isn't configured yet — set services.prowlarr in "
+                "settings.yaml for unified indexer search.")
+    if not raw:
+        return f"No indexer results for '{query}'."
+    results = []
+    for i, r in enumerate(raw[:5], 1):
+        size_gb = (r.get("size") or 0) / 1024 / 1024 / 1024
+        seeders = r.get("seeders")
+        info = f"[{r.get('indexer', '?')}] {size_gb:.1f} GB"
+        if seeders is not None:
+            info += f", {seeders} seeders"
+        results.append({
+            "title": r.get("title", "?"), "year": "", "source_type": "release",
+            "id": i, "overview": info, "relevance": 0, "source": "prowlarr",
+            "magnet_url": r.get("magnetUrl"),
+            "download_url": r.get("downloadUrl"),
+            "protocol": r.get("protocol", ""),
+        })
+    _set_pending(thread_id, PendingSelection(results=results, auto_add=True))
+    return _format_results(results, query, auto_add=True)
+
+
+async def _h_pause_torrents(match, thread_id):
+    try:
+        from src.config import get_settings
+        if get_settings().qbittorrent.get("url"):
+            from src.tools.qbittorrent import qbittorrent_pause
+            return await qbittorrent_pause.ainvoke({})
+    except Exception:
+        pass
+    return ("❌ Pausing all torrents needs qBittorrent configured "
+            "(Download Station only pauses individual tasks).")
+
+
+async def _h_resume_torrents(match, thread_id):
+    try:
+        from src.config import get_settings
+        if get_settings().qbittorrent.get("url"):
+            from src.tools.qbittorrent import qbittorrent_resume
+            return await qbittorrent_resume.ainvoke({})
+    except Exception:
+        pass
+    return ("❌ Resuming all torrents needs qBittorrent configured "
+            "(Download Station only resumes individual tasks).")
 
 
 # ── Bandcamp handlers ────────────────────────────────────────────────────────
@@ -1076,6 +1284,15 @@ def _rx(*patterns: str) -> list[re.Pattern]:
 
 
 _INTENTS: list[tuple[str, list[re.Pattern], object]] = [
+    # ── meta (cheap exact matches first) ──
+    ("help", _rx(
+        r"^(?:help|\?|what can you do|what can i (?:ask|say)|commands|"
+        r"capabilities|usage|how do(?:es)? (?:this|you) work)$",
+    ), _h_help),
+    ("greeting", _rx(
+        r"^(?:hi|hello|hey|yo|howdy|sup|what's up|good (?:morning|afternoon|evening))$",
+    ), _h_greeting),
+
     # ── missing media (before the broad search catch-all) ──
     ("missing_all", _rx(
         r"^(?:search for |find |check (?:for )?)?(?:all )?missing (?:media|content|stuff|items)$",
@@ -1316,9 +1533,23 @@ _INTENTS: list[tuple[str, list[re.Pattern], object]] = [
         r"^(?:music|lidarr) queue$",
         r"^what music is downloading$",
     ), _h_music_queue),
+    ("add_artist", _rx(
+        r"^add (?:the )?(?:music )?artist (?P<name>.+)$",
+        r"^add (?P<name>.+) to lidarr$",
+        r"^monitor (?:the )?artist (?P<name>.+)$",
+    ), _h_add_artist),
     ("prowlarr_search", _rx(
         r"^search (?:the )?(?:indexers?|prowlarr) for (?P<query>.+)$",
+        r"^deep search (?:for )?(?P<query>.+)$",
     ), _h_prowlarr_search),
+    ("pause_torrents", _rx(
+        r"^pause (?:all )?(?:the )?torrents$",
+        r"^pause qbittorrent$",
+    ), _h_pause_torrents),
+    ("resume_torrents", _rx(
+        r"^(?:resume|unpause) (?:all )?(?:the )?torrents$",
+        r"^(?:resume|unpause) qbittorrent$",
+    ), _h_resume_torrents),
 
     # ── YouTube subscriptions (URL forms handled in the URL step) ──
     ("yt_list_subs", _rx(
@@ -1422,18 +1653,22 @@ async def try_route(message: str, thread_id: str) -> str | None:
     try:
         text = _normalize(message)
         if not text or len(text) > 300:
+            if text:
+                _stats["llm"] += 1
             return None
 
         # 1. A pending confirmation takes priority.
         reply = await _resolve_pending(text, thread_id)
         if reply is not None:
             logger.info("router: pending-confirmation handled %r", text[:60])
+            _stats["router"] += 1
             return reply
 
         # 2. Media URLs (YouTube, Bandcamp, magnet/.torrent, .nzb).
         reply = await _try_url_intents(text, thread_id)
         if reply is not None:
             logger.info("router: url intent handled %r", text[:60])
+            _stats["router"] += 1
             return reply
 
         # 3. Intent table.
@@ -1444,10 +1679,15 @@ async def try_route(message: str, thread_id: str) -> str | None:
                     reply = await handler(match, thread_id)
                     if reply is not None:
                         logger.info("router: intent %s handled %r", name, text[:60])
+                        _stats["router"] += 1
+                    else:
+                        _stats["llm"] += 1
                     return reply
 
+        _stats["llm"] += 1
         return None
     except Exception:
         # Deterministic path must never take the agent down — fall through.
         logger.exception("router: failed on %r; falling back to LLM", message[:80])
+        _stats["llm"] += 1
         return None

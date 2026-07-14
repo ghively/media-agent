@@ -87,6 +87,14 @@ export default function App() {
               <div className="flex items-center gap-1.5 shrink-0">
                 <div className={`w-2 h-2 rounded-full ${getStatusColor()} animate-pulse-slow`} />
                 <span className="text-xs text-dark-400 whitespace-nowrap">{formatLastUpdated()}</span>
+                {data?.router_stats?.total > 0 && (
+                  <span
+                    className="hidden sm:inline text-xs text-accent-yellow/80 whitespace-nowrap"
+                    title={`${data.router_stats.router} of ${data.router_stats.total} messages answered by the deterministic router — no LLM needed`}
+                  >
+                    ⚡ {data.router_stats.instant_pct}% instant
+                  </span>
+                )}
               </div>
             </div>
             <label className="flex items-center gap-2 cursor-pointer shrink-0">

@@ -23,6 +23,9 @@ llm:
   num_predict: 1024     # max tokens per generation (caps runaway output)
   keep_alive: "30m"     # keep the model loaded in VRAM between requests
   reasoning: false      # disable qwen3 thinking blocks for faster replies
+  tool_scoping: true    # bind only the matched domain's ~10 tools per turn
+                        # (instead of all 92) — big accuracy + context win
+                        # for small models; ambiguous messages get all tools
 
 services:
   sonarr:

@@ -237,13 +237,50 @@ class AgentRuntime:
                 checkpointer=checkpointer,
             )
 
-    async def pick_agent(self):
-        """Select the compiled graph for this request via the circuit breaker."""
-        if self.fallback_agent is None:
-            return self.local_agent, False
-        chosen = await self.llm.get_llm()
-        if chosen is self.llm.fallback_llm:
-            return self.fallback_agent, True
+        # Domain-scoped agents (LLM-light mode): one graph per domain, bound
+        # to that domain's tools only. A small local model choosing among
+        # ~10 tools is far more reliable than among 92 — and burns a fraction
+        # of the schema tokens. Shares the checkpointer, so scoped and full
+        # turns interleave on the same thread. Disable via llm.tool_scoping.
+        self.scoped_agents: dict = {}
+        try:
+            from src.config import get_settings
+            scoping_enabled = get_settings().llm.get("tool_scoping", True)
+        except Exception:
+            scoping_enabled = True
+        if scoping_enabled:
+            from src.graphs.scoping import DOMAINS, tools_for_domain
+            by_name = {t.name: t for t in all_tools}
+            for domain in DOMAINS:
+                subset = [by_name[n] for n in tools_for_domain(domain)
+                          if n in by_name]
+                if not subset:
+                    continue
+                scoped_bound = self.llm.local_llm.bind_tools(subset).with_config(
+                    tags=[_LOCAL_LLM_TAG])
+                self.scoped_agents[domain] = create_react_agent(
+                    scoped_bound,
+                    tools=subset,
+                    prompt=_build_prompt,
+                    checkpointer=checkpointer,
+                )
+
+    async def pick_agent(self, message: str = ""):
+        """Select the compiled graph for this request.
+
+        Breaker OPEN → hosted full agent. Otherwise, an unambiguous domain
+        classification picks the scoped local agent; anything else runs the
+        full local agent."""
+        if self.fallback_agent is not None:
+            chosen = await self.llm.get_llm()
+            if chosen is self.llm.fallback_llm:
+                return self.fallback_agent, True
+        if self.scoped_agents and message:
+            from src.graphs.scoping import classify
+            domain = classify(message)
+            if domain is not None and domain in self.scoped_agents:
+                logger.info("scoped agent: %s", domain)
+                return self.scoped_agents[domain], False
         return self.local_agent, False
 
 
@@ -333,6 +370,15 @@ def _is_recursion_error(exc: Exception) -> bool:
         return "recursion" in type(exc).__name__.lower()
 
 
+def _last_user_text(message: str, messages: list | None) -> str:
+    """The text used for domain scoping: the latest user utterance."""
+    if messages:
+        for m in reversed(messages):
+            if isinstance(m, dict) and m.get("role") == "user":
+                return str(m.get("content", ""))
+    return message or ""
+
+
 async def _record_outcome(runtime: AgentRuntime, tracker: _LLMErrorTracker) -> None:
     """Update the breaker after a run that produced a reply.
 
@@ -354,7 +400,7 @@ async def run_agent(message: str, thread_id: str, *, messages: list | None = Non
     Never raises — failures come back as friendly ❌/⚠️ strings.
     """
     runtime = await get_runtime()
-    agent, using_fallback = await runtime.pick_agent()
+    agent, using_fallback = await runtime.pick_agent(_last_user_text(message, messages))
     payload = {"messages": messages or [{"role": "user", "content": message}]}
     tracker = _LLMErrorTracker()
     config = _thread_config(thread_id, tracker)
@@ -401,7 +447,7 @@ async def stream_agent(message: str, thread_id: str, *, messages: list | None = 
     on the hosted model when nothing has been streamed yet.
     """
     runtime = await get_runtime()
-    agent, using_fallback = await runtime.pick_agent()
+    agent, using_fallback = await runtime.pick_agent(_last_user_text(message, messages))
     payload = {"messages": messages or [{"role": "user", "content": message}]}
     tracker = _LLMErrorTracker()
     config = _thread_config(thread_id, tracker)
