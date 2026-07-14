@@ -22,20 +22,10 @@ RUN groupadd -r media && useradd -r -g media -d /app media
 
 WORKDIR /app
 
-# Python dependencies
+# Python dependencies — everything pinned in requirements.txt (app deps,
+# provider CLIs, scheduler) so image builds are reproducible.
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Install additional tools
-RUN pip install --no-cache-dir \
-    yt-dlp \
-    bandcamp-downloader \
-    internetarchive \
-    mutagen \
-    audible-cli \
-    apscheduler \
-    jinja2 \
-    python-telegram-bot>=21.0
 
 # Application code
 COPY --chown=media:media . .

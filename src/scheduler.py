@@ -53,6 +53,14 @@ class MediaScheduler:
             lambda: CronTrigger(day_of_week="sun", hour=2, minute=0),
             "Full library scan every Sunday at 2:00 AM",
         ),
+        "availability_check": (
+            lambda: IntervalTrigger(minutes=20),
+            "Diff approved requests against Emby every 20 minutes",
+        ),
+        "cleanup_sweep": (
+            lambda: CronTrigger(hour=4, minute=30),
+            "Execute due quarantine actions and retention rules at 4:30 AM",
+        ),
     }
 
     def __init__(self):

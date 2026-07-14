@@ -1,6 +1,6 @@
 # Media Agent
 
-A containerized, conversational AI agent for managing a personal media ecosystem — TV shows, movies, music, audiobooks, YouTube content, and classic game ROMs. Powered by a local LLM (qwen3.5:9b via Ollama) with **70 tools** across 12 categories.
+A containerized, conversational AI agent for managing a personal media ecosystem — TV shows, movies, music, audiobooks, YouTube content, and classic game ROMs. Powered by a local LLM (qwen3.5:9b via Ollama) with **102 tools** across 19 categories — TV, movies, music (Bandcamp + Lidarr), audiobooks, podcasts, YouTube, Twitch, comics, ebooks, ROMs, torrents, usenet, and more.
 
 Ask it things like *"what's new on my server?"*, *"add The Matrix in 1080p"*, or *"what's downloading?"* — it searches, adds, monitors, and scans your library automatically.
 
@@ -184,7 +184,7 @@ This works with any OpenAI-compatible client (Open WebUI, SillyTavern, etc.).
 User Input (CLI / API / Dashboard)
     │
     ▼
-LangGraph ReAct Agent (LLM + 70 tools)
+LangGraph ReAct Agent (LLM + 102 tools)
     │
     ├── Sonarr tools (12)   → TV show management
     ├── Radarr tools (10)   → Movie management
@@ -204,7 +204,7 @@ LangGraph ReAct Agent (LLM + 70 tools)
 Your media services (Sonarr, Radarr, Emby, SABnzbd...)
 ```
 
-The agent uses **LangGraph's `create_react_agent`** — the LLM (qwen3.5:9b via local Ollama) decides which tools to call, executes them, sees results, and loops until it can answer. All 70 tools are registered in a single registry and available simultaneously.
+The agent uses **LangGraph's `create_react_agent`** — the LLM (qwen3.5:9b via local Ollama) decides which tools to call, executes them, sees results, and loops until it can answer. All 102 tools are registered in a single registry and available simultaneously.
 
 **Key design points:**
 - **Local-first:** Uses local Ollama for all inference. Zero API costs. Optional cloud LLM fallback.
@@ -223,7 +223,7 @@ Detailed instructions for deploying in a new environment are in:
 | [CLAUDE.md](CLAUDE.md) | AI context file — read this first when working on the codebase |
 | [docs/deployment-guide.md](docs/deployment-guide.md) | Full deployment walkthrough for first-time setup |
 | [docs/development-guide.md](docs/development-guide.md) | How to add new tools, providers, or integrations |
-| [docs/tool-reference.md](docs/tool-reference.md) | Complete reference for all 70 tools |
+| [docs/tool-reference.md](docs/tool-reference.md) | Complete reference for all 102 tools |
 | [docs/api-reference.md](docs/api-reference.md) | OpenAI-compatible API documentation |
 
 ### For Hermes / Claude / Cursor agents
@@ -242,7 +242,7 @@ If you're an AI agent being asked to deploy this, start with `CLAUDE.md` — it 
 
 ---
 
-## Capabilities (70 Tools)
+## Capabilities (102 Tools)
 
 | Category | Tools | What you can ask |
 |---|---|---|
@@ -259,6 +259,8 @@ If you're an AI agent being asked to deploy this, start with `CLAUDE.md` — it 
 | **ROMs** | 4 | Search Internet Archive collections, download ROM sets, verify with DAT files, browse by platform |
 | **ROM Library** | 4 | Scan and identify ROMs by file header, inspect a single ROM, find duplicates (CRC), check for problems |
 | **Library** | 5 | Build filesystem inventory, find duplicates, check and fix naming conventions, undo renames |
+| **Requests** | 3 | Approval-gated media requests with rolling quotas: list the queue, approve/deny; requesters get Telegram pushes when items are approved and again when they're actually watchable |
+| **Cleanup** | 7 | Maintainerr-style quarantine-before-delete ("delete Dune in 14 days", "keep Dune"), unmonitor-instead-of-delete, keep-newest-N episode retention, and NL auto-approve/routing rules |
 
 ---
 

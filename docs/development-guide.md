@@ -662,7 +662,7 @@ docker compose up -d --build
 docker compose exec media-agent python -c "from src.tools.registry import all_tools; print(f'{len(all_tools)} tools')"
 ```
 
-Expected output: `70 tools` (or more if you added tools).
+Expected output: `102 tools` (or more if you added tools).
 
 If this fails or shows a lower count, there's an import error in `registry.py`. Check logs:
 

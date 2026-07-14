@@ -24,10 +24,11 @@ class MediaLLM:
         fallback_key: str = "",
         fallback_model: str = "",
         temperature: float = 0.2,
-        num_ctx: int = 8192,
+        num_ctx: int = 16384,
         num_predict: int = 1024,
         keep_alive: str = "30m",
         reasoning: bool = False,
+        timeout: float = 120.0,
     ):
         from langchain_ollama import ChatOllama
 
@@ -37,6 +38,9 @@ class MediaLLM:
         # reasoning=False disables qwen3-style thinking blocks (major
         # latency win for tool-calling turns); dropped if the installed
         # langchain-ollama predates the parameter.
+        # timeout bounds each request — a hung (not refused) Ollama socket
+        # would otherwise stall a turn forever, and hangs never trip the
+        # circuit breaker because only completed failures are counted.
         ollama_kwargs = dict(
             base_url=ollama_url,
             model=ollama_model,
@@ -45,10 +49,17 @@ class MediaLLM:
             num_predict=num_predict,
             keep_alive=keep_alive,
         )
+        client_kwargs = {"timeout": timeout}
         try:
-            self.local_llm = ChatOllama(**ollama_kwargs, reasoning=reasoning)
+            self.local_llm = ChatOllama(
+                **ollama_kwargs, client_kwargs=client_kwargs, reasoning=reasoning)
         except Exception:
-            self.local_llm = ChatOllama(**ollama_kwargs)
+            try:
+                self.local_llm = ChatOllama(**ollama_kwargs, client_kwargs=client_kwargs)
+            except Exception:
+                # Very old langchain-ollama: no client_kwargs — keep working,
+                # just without the request timeout.
+                self.local_llm = ChatOllama(**ollama_kwargs)
         self.fallback_llm = None
         if fallback_url and fallback_key:
             from langchain_openai import ChatOpenAI
@@ -57,6 +68,8 @@ class MediaLLM:
                 api_key=fallback_key,
                 model=fallback_model,
                 temperature=temperature,
+                timeout=timeout,
+                max_retries=1,
             )
 
         self._state = CircuitState.CLOSED
@@ -100,8 +113,12 @@ class MediaLLM:
 def create_llm() -> MediaLLM:
     """Create MediaLLM from settings.
 
-    Temperature defaults low (0.2): a 9B model picking among ~66 tools needs
+    Temperature defaults low (0.2): a 9B model picking among ~70 tools needs
     determinism far more than prose flair. Override via ``llm.temperature``.
+
+    num_ctx defaults to 16384: the serialized schemas of 70 tools plus the
+    system prompt plus history overflow 8192, and Ollama truncates silently
+    from the top of the prompt when that happens.
     """
     from src.config import get_settings
     llm_cfg = get_settings().llm
@@ -112,8 +129,9 @@ def create_llm() -> MediaLLM:
         fallback_key=llm_cfg.get("hosted_key", ""),
         fallback_model=llm_cfg.get("hosted_model", ""),
         temperature=llm_cfg.get("temperature", 0.2),
-        num_ctx=llm_cfg.get("num_ctx", 8192),
+        num_ctx=llm_cfg.get("num_ctx", 16384),
         num_predict=llm_cfg.get("num_predict", 1024),
         keep_alive=llm_cfg.get("keep_alive", "30m"),
         reasoning=llm_cfg.get("reasoning", False),
+        timeout=llm_cfg.get("timeout", 120),
     )

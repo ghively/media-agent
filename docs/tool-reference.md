@@ -1,6 +1,6 @@
 # Media Agent Tool Reference
 
-Complete reference for all 70 registered LangGraph tools in the media-agent project.
+Complete reference for all 102 registered LangGraph tools in the media-agent project.
 
 ## Summary
 
@@ -19,8 +19,14 @@ Complete reference for all 70 registered LangGraph tools in the media-agent proj
 | ROMs | 4 | Retro game ROM downloads and verification |
 | ROM Library | 4 | Header-level ROM identification, metadata, deduplication, and debugging |
 | Library | 5 | Filesystem inventory, duplicate detection, and naming convention management |
+| Requests | 3 | Approval-gated request queue (list, approve, deny) with rolling per-user quotas |
+| Cleanup | 7 | Quarantine-before-delete scheduling, reprieve, retention rules, rule management |
 
-**Total: 70 tools registered**
+**Total: 102 tools registered**
+
+> The 22 newest tools (podcasts, Twitch, Komga comics, Calibre ebooks,
+> Lidarr, Prowlarr, qBittorrent) are summarized in
+> [New integrations](#new-integrations) at the end of this file.
 
 ---
 
@@ -49,13 +55,17 @@ Found 2 result(s):
 
 ---
 
-### `add_tv_show(tvdb_id: int, title: str) -> str`
+### `add_tv_show(tvdb_id: int, title: str, season: int = 0, quality_profile_id: int = 0, root_folder: str = "") -> str`
 
-Add a TV show to the monitored library by its TVDB ID.
+Add a TV show to the monitored library by its TVDB ID. With `season=N` only
+that season is monitored and searched (season-level requests); optional
+quality profile / root folder override the configured defaults.
 
 **Parameters:**
 - `tvdb_id` (int): TVDB ID of the show (from search_tv)
 - `title` (str): Show title
+- `season` (int): monitor/search only this season (0 = whole series)
+- `quality_profile_id` (int), `root_folder` (str): optional routing overrides
 
 **API Called:** Sonarr v3 API - `POST /api/v3/series`
 
@@ -1284,7 +1294,9 @@ Album: Album Name
 
 ---
 
-### `bandcamp_download_collection() -> str`
+### `bandcamp_download_collection(confirm: bool = False) -> str`
+
+> ⏸️ **Confirmation gate:** with `confirm=False` (the default) this tool only previews what it would do. It performs the operation only when called again with `confirm=True`, after the user has approved. The deterministic router passes `confirm=True` automatically once its own yes/no step is answered.
 
 Download all purchased Bandcamp albums from your collection.
 Requires bandcamp-dl to be configured with your account credentials.
@@ -1356,7 +1368,9 @@ audible_download(asin="B00X4WHP5E")
 
 ---
 
-### `audible_download_new() -> str`
+### `audible_download_new(confirm: bool = False) -> str`
+
+> ⏸️ **Confirmation gate:** with `confirm=False` (the default) this tool only previews what it would do. It performs the operation only when called again with `confirm=True`, after the user has approved. The deterministic router passes `confirm=True` automatically once its own yes/no step is answered.
 
 Download audiobooks added to your library since the last sync.
 
@@ -1398,12 +1412,13 @@ audible_setup_auth()
 ⚠️ Audible authentication setup requires user interaction.
 
 To set up:
-1. Run: `audible quickstart --auth-file /config/audible/auth.json`
+1. Run: `audible quickstart --auth-file /state/audible/auth.json` (or the configured `services.audible.auth_dir`)
 2. You'll be prompted to open a URL in a browser
 3. Log in to Amazon and paste the redirect URL back
 4. Once complete, run `audible_check_auth` to verify
 
-The auth file will persist in /config/audible/ and survive container restarts.
+The auth file persists on the /state volume and survives container restarts
+(a legacy /config/audible/auth.json is still picked up if present).
 Auth tokens expire ~30 days — the agent will prompt you to re-authenticate.
 ```
 
@@ -1463,7 +1478,9 @@ Use `rom_download` with the identifier to download.
 
 ---
 
-### `rom_download(identifier: str, platform: str = "") -> str`
+### `rom_download(identifier: str, platform: str = "", confirm: bool = False) -> str`
+
+> ⏸️ **Confirmation gate:** with `confirm=False` (the default) this tool only previews what it would do. It performs the operation only when called again with `confirm=True`, after the user has approved. The deterministic router passes `confirm=True` automatically once its own yes/no step is answered.
 
 Download a ROM set from Internet Archive by identifier.
 Optionally specify platform to organize the download.
@@ -1486,7 +1503,7 @@ Downloading 20 file(s) from 'no-intro-snes-super-mario-world'...
   ✓ Super Mario World (USA).xml
   ...
 
-✅ Downloaded 20 files to /tmp/rom_downloads/snes
+✅ Downloaded 20 files to /media/roms/snes
 
 Run `rom_verify_dat` to verify checksums against No-Intro DATs.
 ```
@@ -1689,7 +1706,9 @@ Checked 320 file(s) against 'tv' convention:
 
 ---
 
-### `library_fix_naming(path: str, convention: str = "tv") -> str`
+### `library_fix_naming(path: str, convention: str = "tv", confirm: bool = False) -> str`
+
+> ⏸️ **Confirmation gate:** with `confirm=False` (the default) this tool only previews what it would do. It performs the operation only when called again with `confirm=True`, after the user has approved. The deterministic router passes `confirm=True` automatically once its own yes/no step is answered.
 
 Rename files to match naming conventions. Creates an undo log before renaming so the batch is reversible.
 
@@ -1794,3 +1813,117 @@ services:
 ---
 
 *Generated from media-agent source files. Last updated: 2026-07-12*
+
+---
+
+## New integrations
+
+Compact reference for the 22 tools added in the feature-wiring pass. All are
+optional: each answers with a clear "not configured" message until its
+service/config exists.
+
+### Podcasts (RSS — `src/providers/podcast.py`)
+
+| Tool | What it does |
+|---|---|
+| `podcast_subscribe(feed_url)` | Subscribe to a podcast RSS feed |
+| `podcast_unsubscribe(name)` | Remove a subscription (files stay on disk) |
+| `podcast_list_subscriptions()` | List subscriptions |
+| `podcast_check_new()` | Download new episodes (max 3/feed/run) to `services.podcasts.download_path` |
+
+State: `/state/podcast_subs.json`, `/state/podcast_downloaded.json`.
+
+### Twitch (`src/providers/twitch.py`, needs streamlink)
+
+| Tool | What it does |
+|---|---|
+| `twitch_check_live(channel)` | Is a channel live + available qualities |
+| `twitch_record(channel, quality="best")` | Start a background recording to `services.twitch.download_path`; returns immediately |
+| `twitch_recordings()` | Status/size of this session's recordings |
+
+### Comics — Komga (`src/tools/komga.py`)
+
+| Tool | What it does |
+|---|---|
+| `komga_search(query)` | Search series by name |
+| `komga_recent(limit=10)` | Recently added books |
+| `komga_scan()` | Rescan every Komga library |
+
+Config: `services.komga.url` + `api_key` (X-API-Key header).
+
+### Ebooks — Calibre (`src/tools/calibre.py`)
+
+| Tool | What it does |
+|---|---|
+| `calibre_search(query)` | Search (supports Calibre expressions like `author:Herbert`) |
+| `calibre_recent(limit=10)` | Recently added ebooks |
+
+Config: `services.calibre.url` (content server) + optional username/password.
+
+### Music — Lidarr (`src/tools/lidarr.py`)
+
+| Tool | What it does |
+|---|---|
+| `search_artist(query)` | Look up artists (returns artistId) |
+| `add_artist(foreign_artist_id, name)` | Monitor an artist + search albums |
+| `list_artists(page=1)` | Monitored artists, 30/page |
+| `get_music_queue()` | Lidarr's download queue |
+
+Config: `services.lidarr.url`, `api_key`, `quality_profile_id`, `metadata_profile_id`, `root_folder_path`.
+
+### Indexers — Prowlarr (`src/tools/prowlarr.py`)
+
+| Tool | What it does |
+|---|---|
+| `prowlarr_search(query)` | Unified search across all indexers, sorted by seeders |
+| `prowlarr_indexers()` | List configured indexers |
+
+Config: `services.prowlarr.url` + `api_key`.
+
+### Torrents — qBittorrent (`src/tools/qbittorrent.py`)
+
+| Tool | What it does |
+|---|---|
+| `qbittorrent_list()` | Torrents with progress/speeds |
+| `qbittorrent_add(url, category="")` | Add magnet/.torrent URL |
+| `qbittorrent_pause()` / `qbittorrent_resume()` | Pause/resume all |
+
+Config: `services.qbittorrent.url`, `username`, `password`. When configured,
+the router prefers qBittorrent over Download Station for magnet links and
+"list torrents".
+
+### Requests — approval loop (`src/tools/requests_tools.py`)
+
+The seerr pattern, conversational: non-admin Telegram users' "add X" becomes
+a pending request (rolling quota enforced); admins approve or deny; the
+scheduler's availability sweep notifies the requester when the item actually
+lands in Emby. Role config lives in `users:` (settings.yaml) — with
+`users.admins` empty the whole system is off and adds are direct.
+
+- `list_media_requests(status="")` — the request queue (filter: pending/approved/denied/available)
+- `approve_media_request(request_id)` — approve and run the Sonarr/Radarr add
+- `deny_media_request(request_id, reason="")` — deny with an optional reason
+
+Router phrases: "add Severance season 2" (season-scoped request), "list
+requests", "approve #3" / "deny #3 because …", "my requests" (own list +
+quota).
+
+### Cleanup — quarantine & retention (`src/tools/cleanup_tools.py`)
+
+Maintainerr's safe-cleanup patterns. Nothing deletes immediately: items sit
+in a "Leaving Soon" ledger (and best-effort Emby collection) for a grace
+period (`cleanup.grace_days`, default 7) and are reprievable until the daily
+4:30 AM sweep executes them. Fail-safe invariant: if Sonarr/Radarr can't be
+reached while evaluating an item, it's skipped — unknown state = no action.
+
+- `cleanup_status()` — the "leaving soon" list with days remaining
+- `cleanup_schedule(title, days=0, action="delete")` — quarantine an item; `action="unmonitor"` keeps files but stops future grabs; `delete` removes files and adds an import-list exclusion
+- `cleanup_keep(title)` — reprieve (cancel a scheduled action)
+- `cleanup_run_now()` — run the sweep immediately
+- `cleanup_set_retention(series_title, keep_last)` — keep only the newest N episodes, pruning older files each sweep
+- `cleanup_list_rules()` / `cleanup_remove_rule(rule_id)` — manage stored rules
+
+Router phrases: "delete Dune in 14 days", "what's leaving soon?", "keep
+Dune", "keep the newest 10 episodes of NewsShow", "run cleanup now",
+"auto-approve requests from alice", "auto-approve anything under 3 seasons",
+"always send anime to /media/anime", "list rules", "remove rule #2".

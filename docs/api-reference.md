@@ -91,9 +91,9 @@ POST /v1/chat/completions
     }
   ],
   "usage": {
-    "prompt_tokens": 0,
-    "completion_tokens": 0,
-    "total_tokens": 0
+    "prompt_tokens": 42,
+    "completion_tokens": 12,
+    "total_tokens": 54
   }
 }
 ```
@@ -139,20 +139,40 @@ Returns a self-contained HTML page (no external dependencies) showing:
 GET /api/dashboard/data
 ```
 
-**Auth:** Bearer token required (if `api_key` is configured)
+**Auth:** None — the dashboard is open by design (owner's choice). The
+container binds to loopback only; expose it beyond the box through a VPN or
+an authenticating reverse proxy. The `/v1` endpoints still require the key.
 
-Returns JSON health/activity data for programmatic access.
+Returns JSON health/activity data for programmatic access. The payload is
+cached server-side for ~20s (and the ROM file count for 5 minutes), so
+multiple dashboard tabs don't multiply upstream load.
 
 ```
 POST /api/dashboard/chat
 ```
 
-**Auth:** Bearer token required (if `api_key` is configured)
+**Auth:** None (see above)
 
-Streams the agent's response (SSE) for a dashboard chat message. Body:
-`{"message": "..."}`. This route drives the full agent, so it is gated behind
-the same `MEDIA_AGENT_API_KEY` as the `/v1` endpoints — set a key (and reach the
-service over loopback or an authenticated proxy) before exposing it.
+Streams the agent's response (SSE, with `: keepalive` comment pings while
+the agent thinks) for a dashboard chat message. Body:
+`{"message": "...", "session_id": "<8-64 alphanumeric chars, optional>"}`.
+Each `session_id` gets its own conversation thread (`message` is capped at
+4000 chars); omitting it uses the shared legacy `dashboard` thread.
+
+The final SSE event may include `"suggest": ["yes", "no", ...]` — quick
+replies for a pending confirmation, rendered as buttons by the dashboard —
+and always carries `"via"`: `"router"` (answered deterministically, no LLM)
+or `"llm"`. `/api/dashboard/data` includes `router_stats`
+(`{router, llm, total, instant_pct}`) for the ⚡ coverage chip.
+
+```
+POST /api/dashboard/reset
+```
+
+**Auth:** None (see above)
+
+Drops a session's conversation memory and pending confirmations. Body:
+`{"session_id": "..."}`. The dashboard's "New conversation" button calls this.
 
 ---
 
@@ -253,9 +273,9 @@ The agent uses `temperature=0` for deterministic behavior. The `temperature` fie
 
 The first request after container start (or after Ollama model unload) takes 10-15 seconds as the model loads into VRAM. Subsequent requests are ~35 tok/s.
 
-### Usage Stats Are Zero
+### Usage Stats Are Estimates
 
-The `usage` field in the response always returns zeros. Token counting is not implemented because the local Ollama model doesn't bill per-token.
+The `usage` field is an estimate (~4 characters/token). The local Ollama model doesn't bill per-token, so exact counts aren't metered — but non-zero estimates keep client-side accounting (e.g. Open WebUI) sensible.
 
 ---
 

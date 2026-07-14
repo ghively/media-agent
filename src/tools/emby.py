@@ -67,7 +67,8 @@ async def emby_search(query: str) -> str:
 
 @tool
 async def emby_recent(limit: int = 20) -> str:
-    """Show recently added items in Emby."""
+    """Show items recently ADDED to the Emby library (new arrivals on disk).
+    Not for download queues — use check_queue_status for those."""
     try:
         result = await _client()._get("/emby/Items", params={
             "Limit": str(limit),
@@ -119,7 +120,9 @@ async def emby_libraries() -> str:
 
 @tool
 async def emby_scan() -> str:
-    """Trigger an Emby library scan/refresh."""
+    """Make Emby rescan its library folders so newly downloaded files show up.
+    Use after adding media. For refreshing one show/movie's metadata in
+    Sonarr/Radarr, use refresh_tv_show / refresh_movie instead."""
     try:
         await _client()._post("/emby/Library/Refresh")
         return "✅ Library scan triggered."
@@ -131,8 +134,13 @@ async def emby_scan() -> str:
 
 @tool
 async def emby_get_item(item_id: str) -> str:
-    """Get details of a specific Emby media item by ID."""
+    """Get details of a specific Emby media item by ID (the numeric/alphanumeric
+    ID shown by emby_search or emby_recent)."""
     try:
+        # item_id is LLM-supplied and lands in the URL path — validate it so
+        # "../System/Info" can't reach other Emby endpoints.
+        if not item_id.isalnum():
+            return f"❌ '{item_id}' is not a valid Emby item ID."
         item = await _client()._get(f"/emby/Items/{item_id}")
         name = item.get("Name", "Unknown")
         itype = item.get("Type", "")

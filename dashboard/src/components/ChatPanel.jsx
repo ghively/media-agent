@@ -1,12 +1,17 @@
 import { useState, useRef, useEffect } from 'react'
-import { streamChat } from '../api/client'
+import { streamChat, resetConversation } from '../api/client'
+
+const GREETING = { role: 'system', content: 'Hello! I\'m your Media Agent. I can help you manage your media library, search for content, and monitor your services. What would you like to do?' }
 
 export default function ChatPanel({ initialQuery }) {
-  const [messages, setMessages] = useState([
-    { role: 'system', content: 'Hello! I\'m your Media Agent. I can help you manage your media library, search for content, and monitor your services. What would you like to do?' }
-  ])
+  const [messages, setMessages] = useState([GREETING])
   const [input, setInput] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
+  // Quick replies (yes/no/pick buttons) offered when a confirmation is
+  // pending after the last agent message.
+  const [suggestions, setSuggestions] = useState([])
+  // Elapsed seconds while the (possibly slow, local) model thinks.
+  const [thinkingSeconds, setThinkingSeconds] = useState(0)
   const messagesEndRef = useRef(null)
   const textareaRef = useRef(null)
   const currentAssistantMessageRef = useRef(null)
@@ -21,20 +26,35 @@ export default function ChatPanel({ initialQuery }) {
     scrollToBottom()
   }, [messages])
 
+  useEffect(() => {
+    if (!isGenerating) {
+      setThinkingSeconds(0)
+      return
+    }
+    const start = Date.now()
+    const timer = setInterval(
+      () => setThinkingSeconds(Math.floor((Date.now() - start) / 1000)), 1000)
+    return () => clearInterval(timer)
+  }, [isGenerating])
+
   const send = async (rawMessage) => {
     const userMessage = (rawMessage ?? '').trim()
     if (!userMessage || isGeneratingRef.current) return
 
     isGeneratingRef.current = true
     setIsGenerating(true)
+    setSuggestions([])
     setMessages(prev => [...prev, { role: 'user', content: userMessage }, { role: 'assistant', content: '' }])
     currentAssistantMessageRef.current = ''
 
-    const setLastAssistant = (content) => {
+    const setLastAssistant = (content, extra) => {
       setMessages(prev => {
         const next = [...prev]
         const last = next[next.length - 1]
-        if (last && last.role === 'assistant') last.content = content
+        if (last && last.role === 'assistant') {
+          last.content = content
+          if (extra) Object.assign(last, extra)
+        }
         return next
       })
     }
@@ -51,11 +71,11 @@ export default function ChatPanel({ initialQuery }) {
           currentAssistantMessageRef.current += token
           setLastAssistant(currentAssistantMessageRef.current)
         },
-        onDone: (fullResponse) => {
+        onDone: (fullResponse, suggested, via) => {
           // If nothing streamed (e.g. only tool calls), fall back to the final text.
-          if (!currentAssistantMessageRef.current && fullResponse) {
-            setLastAssistant(fullResponse)
-          }
+          const content = currentAssistantMessageRef.current || fullResponse || ''
+          setLastAssistant(content, via === 'router' ? { instant: true } : null)
+          if (suggested && suggested.length) setSuggestions(suggested.slice(0, 7))
           finish()
         },
         onError: (error) => {
@@ -119,19 +139,42 @@ export default function ChatPanel({ initialQuery }) {
               {message.role === 'system' ? (
                 <div className="text-sm">{message.content}</div>
               ) : (
-                <div className="text-sm whitespace-pre-wrap break-words leading-relaxed">{message.content}</div>
+                <>
+                  <div className="text-sm whitespace-pre-wrap break-words leading-relaxed">{message.content}</div>
+                  {message.instant && (
+                    <div className="mt-1 text-[0.65rem] text-dark-500 select-none" title="Answered by the deterministic router — no LLM round trip">
+                      ⚡ instant
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
         ))}
+        {!isGenerating && suggestions.length > 0 && (
+          <div className="flex flex-wrap gap-2 justify-start pl-1">
+            {suggestions.map((s) => (
+              <button
+                key={s}
+                onClick={() => { setSuggestions([]); send(s) }}
+                className="px-3 py-1.5 rounded-full text-sm border border-accent-blue/50 text-accent-blue hover:bg-accent-blue/10 active:scale-95 transition-all touch-manipulation"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
         {isGenerating && !currentAssistantMessageRef.current && (
           <div className="flex justify-start">
-            <div className="bg-dark-700 rounded-2xl rounded-bl-md px-4 py-3 border border-dark-500/60">
+            <div className="bg-dark-700 rounded-2xl rounded-bl-md px-4 py-3 border border-dark-500/60 flex items-center gap-3">
               <div className="flex gap-1">
                 <span className="typing-dot" />
                 <span className="typing-dot" />
                 <span className="typing-dot" />
               </div>
+              {thinkingSeconds >= 3 && (
+                <span className="text-xs text-dark-500">thinking… {thinkingSeconds}s</span>
+              )}
             </div>
           </div>
         )}
@@ -168,7 +211,21 @@ export default function ChatPanel({ initialQuery }) {
             )}
           </button>
         </form>
-        <div className="mt-2 text-xs text-dark-500">Press Enter to send, Shift+Enter for newline</div>
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <div className="text-xs text-dark-500">Press Enter to send, Shift+Enter for newline</div>
+          <button
+            type="button"
+            disabled={isGenerating}
+            onClick={async () => {
+              await resetConversation()
+              setMessages([GREETING])
+            }}
+            className="text-xs text-dark-400 hover:text-accent-blue transition-colors disabled:opacity-50"
+            title="Forget this conversation and start fresh"
+          >
+            ↺ New conversation
+          </button>
+        </div>
       </div>
     </div>
   )

@@ -1,13 +1,23 @@
 export default function QuickActions({ onAction }) {
+  // Phrasings deliberately match the deterministic router's patterns so
+  // every button answers instantly, without an LLM round trip.
   const actions = [
-    { icon: '❤️', label: 'Health Check', query: 'Run a health check on all services' },
-    { icon: '⬇️', label: 'Downloads', query: 'What is currently downloading?' },
-    { icon: '📺', label: 'TV Shows', query: 'Show me the latest TV show activity' },
-    { icon: '🎬', label: 'Movies', query: 'Show me the latest movie activity' },
-    { icon: '🆕', label: 'Recent', query: 'What was recently added to the library?' },
-    { icon: '📅', label: 'Calendar', query: 'Show me the upcoming releases calendar' },
-    { icon: '🔍', label: 'Find Missing', query: 'Find all missing episodes and movies' },
-    { icon: '💾', label: 'Disk Space', query: 'Check disk space usage across all drives' },
+    { icon: '❤️', label: 'Health Check', query: 'health check' },
+    { icon: '⬇️', label: 'Downloads', query: "what's downloading?" },
+    { icon: '📺', label: 'TV Shows', query: 'list my tv shows' },
+    { icon: '🎬', label: 'Movies', query: 'list my movies' },
+    { icon: '🆕', label: 'Recent', query: 'what was recently added to emby?' },
+    { icon: '📅', label: 'Calendar', query: 'what is airing this week?' },
+    { icon: '🔍', label: 'Find Missing', query: 'find all missing episodes and movies' },
+    { icon: '💾', label: 'Disk Space', query: 'check disk space' },
+    { icon: '🧲', label: 'Torrents', query: 'torrents' },
+    { icon: '🕹️', label: 'Games', query: 'list my rom collection' },
+    { icon: '▶️', label: 'YouTube Subs', query: 'list my youtube subscriptions' },
+    { icon: '🎧', label: 'Audiobooks', query: 'list my audiobooks' },
+    { icon: '🎙️', label: 'Podcasts', query: 'list my podcasts' },
+    { icon: '🎼', label: 'Artists', query: 'list my artists' },
+    { icon: '📚', label: 'Comics', query: 'recent comics' },
+    { icon: '❓', label: 'Help', query: 'help' },
   ]
 
   return (

@@ -137,12 +137,13 @@ async def youtube_download(url: str, content_type: str = "video") -> str:
         ]
 
         if extract_audio:
-            cmd.extend(["-f", "bestaudio", "--extract-audio", "--audio-format", "mp3"])
+            cmd.extend(["-f", fmt, "--extract-audio", "--audio-format", "mp3"])
         else:
             cmd.extend(["-f", fmt, "--merge-output-format", "mkv"])
 
-        # Embed metadata
-        cmd.extend(["--embed-metadata", "--add-metadata"])
+        # Embed metadata (--embed-metadata is the canonical spelling;
+        # --add-metadata is just its alias)
+        cmd.extend(["--embed-metadata"])
 
         # Add the URL after `--` so a malicious value like "--exec=..." can
         # never be parsed as a yt-dlp option (argument injection guard).

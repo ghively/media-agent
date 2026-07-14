@@ -51,14 +51,21 @@ User Input (CLI/API/Dashboard)
     │
     ▼
 Deterministic router (src/graphs/router.py)   ← tried FIRST, no LLM
-    │ ~45 intent groups across ALL domains: queue/health/disk/search/add,
+    │ ~83 intent groups across ALL domains (politeness/filler is stripped,
+    │ so "hey can you check the queue please" routes like "check the queue"): queue/health/disk/search/add,
     │ ROMs & emulation, YouTube (URLs + subscriptions), Audible, Bandcamp,
-    │ library maintenance, SABnzbd/DS, quality profiles, Emby search
+    │ library maintenance, SABnzbd/DS, quality profiles, Emby search,
+    │ media requests (list/approve/deny/quota), cleanup (quarantine/keep/
+    │ retention), auto-approve & routing rules
     │ media URLs dispatch by type: youtube/bandcamp/magnet/.torrent/.nzb
     │ bulk/irreversible ops (ROM sets, renames, collection sync) confirm first
     │ handled? → tool call(s) → instant reply (recorded into agent memory)
     │ no match ▼
-LangGraph create_react_agent(llm, 70 tools)   via run_agent()/stream_agent()
+LangGraph create_react_agent(llm, 102 tools)   via run_agent()/stream_agent()
+    │ role gate: with users.admins set, non-admin Telegram chats never reach
+    │ the LLM — their add flows become approval-gated requests (seerr loop)
+    │ domain-scoped: an unambiguous message binds only that domain's ~10
+    │ tools (src/graphs/scoping.py) — small models pick from a short menu
     │
     ├── LLM decides which tools to call
     ├── Tools execute (async, parallel when possible)
@@ -84,9 +91,13 @@ Formatted response → User
 src/
 ├── main.py              # CLI entry: --serve | --interactive | --query | --health
 ├── config.py            # Settings singleton: YAML + ${ENV_VAR} substitution
-├── scheduler.py         # APScheduler: health(30m), missing(12h), cleanup(3am)
+├── scheduler.py         # APScheduler: health(30m), missing(12h), report(3am), availability(20m), cleanup sweep(4:30am)
+├── store.py             # aiosqlite state: requests, quarantine ledger, rules
+├── users.py             # Roles (users.admins) + rolling request quotas
+├── notify.py            # Webhook/Telegram pushes: notify, notify_chat, notify_admins
 ├── engine/
-│   └── types.py         # Pydantic models: MediaItem, ContentType, etc.
+│   ├── types.py         # Pydantic models: MediaItem, ContentType, etc.
+│   └── rules.py         # Pure evaluation of auto-approve/routing rules
 ├── llm/
 │   └── client.py        # MediaLLM: circuit breaker (CLOSED→OPEN→HALF_OPEN)
 ├── graphs/
@@ -94,6 +105,8 @@ src/
 │   └── router.py        # Deterministic intent router (fast path, no LLM)
 ├── tools/               # LangChain @tool functions (API-backed)
     │   ├── registry.py      # ← all_tools aggregation (THE import point)
+    │   ├── requests_tools.py # 3 tools + request lifecycle: create/approve/deny, quotas, availability sweep
+    │   ├── cleanup_tools.py # 7 tools: quarantine schedule/keep/status, retention, rules, sweep
     │   ├── sonarr.py        # 12 tools: search, add, list, queue, history, calendar, health, missing, quality profiles, root folders, refresh, season search
     │   ├── radarr.py        # 10 tools: search, add, list, queue, history, health, missing, quality profiles, root folders, refresh
     │   ├── emby.py          # 5 tools: search, recent, libraries, scan, get_item
@@ -102,20 +115,28 @@ src/
     │   ├── download_station.py # 6 tools: list, add, pause, resume, info, stats
     │   ├── search.py        # 2 tools: search_media (unified), download_media
     │   ├── library_tools.py # 5 tools: library_build_inventory, library_find_duplicates, library_check_naming, library_fix_naming, library_undo_rename
-    │   └── rom_tools.py     # 4 tools: rom_scan_library, rom_inspect, rom_find_duplicates, rom_check_problems
+    │   ├── rom_tools.py     # 4 tools: rom_scan_library, rom_inspect, rom_find_duplicates, rom_check_problems
+    │   ├── komga.py         # 3 tools: comics search, recent, scan
+    │   ├── calibre.py       # 2 tools: ebook search, recent
+    │   ├── lidarr.py        # 4 tools: artist search/add/list, music queue
+    │   ├── prowlarr.py      # 2 tools: unified indexer search, indexer list
+    │   └── qbittorrent.py   # 4 tools: list, add, pause, resume
 ├── providers/           # Content-specific providers (subprocess-backed)
 │   ├── base.py          # MediaProvider protocol
 │   ├── youtube.py       # 6 tools via yt-dlp subprocess
 │   ├── bandcamp.py      # 2 tools via bandcamp-downloader subprocess
 │   ├── audible.py       # 5 tools via audible-cli subprocess
-│   └── rom.py           # 4 tools via internetarchive subprocess
+│   ├── rom.py           # 4 tools via internetarchive subprocess
+│   ├── podcast.py       # 4 tools: RSS subscriptions + episode downloads (httpx)
+│   └── twitch.py        # 3 tools via streamlink subprocess
 ├── library/             # Library management
-│   ├── scanner.py       # Inventory, cross-reference, orphans, duplicates
+│   ├── scanner.py       # Inventory + duplicate detection
 │   ├── naming.py        # Naming convention check/fix + undo logs
 │   └── rom_analyzer.py  # ROM engine: header parsers (NES/SNES/GB/GBA/N64/NDS/Genesis/SMS/Lynx/...), CRC dedup, debug checks
 └── interfaces/
     ├── cli.py           # Interactive REPL + one-shot + health
     ├── openai_api.py    # FastAPI: /v1/chat/completions + /v1/models + /health
+    ├── telegram_bot.py  # Telegram long-polling bot (chat-id allowlist)
     └── dashboard.py     # Web dashboard HTML (mounted on FastAPI app)
 ```
 
@@ -291,17 +312,20 @@ This agent is part of a larger homelab:
 
 ## What's Next (Roadmap)
 
-| Priority | Feature | Effort |
+| Priority | Feature | Status |
 |---|---|---|
-| **High** | Telegram bot interface (needs bot token from a bot) | Small — `python-telegram-bot` already installed |
-| **High** | Prowlarr + qBittorrent deploy on NAS (enables full unified search) | Medium — Docker deploy on your-nas |
-| **Medium** | Lidarr deploy (music management) | Small — Docker deploy |
-| **Medium** | Automated tests — router + agent core covered in `tests/`; extend to tool modules | Medium |
-| **Medium** | NFS mount into container (enables library scanner on real files) | Small — DSM config + compose volume |
-| **Low** | Podcast provider (RSS) | Small — new provider |
-| **Low** | Twitch provider (streamlink) | Small — new provider |
-| **Low** | Comic provider (Komga API) | Small — new provider |
-| **Low** | Ebook provider (Calibre API) | Small — new provider |
+| ~~High~~ | Telegram bot interface | ✅ Done — set `telegram.bot_token` + `allowed_chat_ids` |
+| **High** | Prowlarr + qBittorrent deploy on NAS | Agent side ✅ wired (`services.prowlarr`/`qbittorrent`); NAS deploy pending |
+| **Medium** | Lidarr deploy (music management) | Agent side ✅ wired (`services.lidarr`); NAS deploy pending |
+| ~~Medium~~ | Automated tests | ✅ 214 tests: router, agent core, providers, tool gates |
+| **Medium** | NFS mount into container | Compose `MEDIA_ROOT` ✅ — point it at the NAS mount |
+| ~~Low~~ | Podcast provider (RSS) | ✅ Done |
+| ~~Low~~ | Twitch provider (streamlink) | ✅ Done |
+| ~~Low~~ | Comic provider (Komga API) | ✅ Done — set `services.komga` |
+| ~~Low~~ | Ebook provider (Calibre API) | ✅ Done — set `services.calibre` |
+| ~~High~~ | Request/approval loop (seerr pattern): roles, quotas, availability pushes | ✅ Done — set `users.admins` to enable |
+| ~~Medium~~ | Cleanup engine (Maintainerr pattern): quarantine, retention, graduated actions | ✅ Done — `cleanup.grace_days`, daily sweep |
+| ~~Medium~~ | NL auto-approve/routing rules ("auto-approve under 3 seasons") | ✅ Done — stored in the state DB |
 
 ---
 

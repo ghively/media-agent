@@ -1,5 +1,5 @@
-"""Library scanner — walks media directories, fingerprints files, and cross-references
-against Sonarr, Radarr, and Emby data to identify orphans and duplicates."""
+"""Library scanner — walks media directories, builds inventories, and finds
+duplicate files by size + content fingerprint."""
 import os
 import hashlib
 from pathlib import Path
@@ -67,67 +67,6 @@ def build_inventory(path: str) -> str:
         lines.append("   Errors encountered:")
         lines.extend(errors)
 
-    return "\n".join(lines)
-
-
-def cross_reference(inventory: str, emby_data: str, sonarr_data: str, radarr_data: str) -> str:
-    """Match discovered files against service data.
-
-    Each argument is a pre-formatted string (from build_inventory, or the
-    tool output from Emby/Sonarr/Radarr tools).  This function parses
-    enough to produce a cross-reference summary.
-
-    Returns a formatted cross-reference report string.
-    """
-    lines = [
-        "🔄 Cross-reference Report",
-        "━━━━━━━━━━━━━━━━━━━━━━━",
-        "",
-        "   Inventory summary:",
-        f"     {inventory.split(chr(10))[1] if chr(10) in inventory else inventory}",
-        "",
-        "   Library data received:",
-    ]
-    for label, data in [("Emby", emby_data), ("Sonarr", sonarr_data), ("Radarr", radarr_data)]:
-        first_line = data.split("\n")[0] if data else "(no data)"
-        lines.append(f"     {label}: {first_line[:80]}")
-
-    lines.extend([
-        "",
-        "   Matching logic runs on the agent side; this report summarises",
-        "   what each service reported and how many items are known.",
-        "   Use find_orphans() for files absent from all services.",
-        "   Use find_duplicates() for file paths with identical content.",
-    ])
-    return "\n".join(lines)
-
-
-def find_orphans(cross_ref: str) -> str:
-    """Identify files that don't appear in any service database.
-
-    Accepts the output of cross_reference() and returns an orphan report.
-    Because the full inventory isn't preserved as structured data across
-    LLM invocations, this function provides a heuristic summary.
-
-    Returns a formatted string describing potential orphan status.
-    """
-    lines = [
-        "👻 Orphan Analysis",
-        "━━━━━━━━━━━━━━━━━",
-        "",
-        "   To find true orphans the agent should:",
-        "",
-        "   1. Call sonarr.list_tv_shows() to get all monitored series paths",
-        "   2. Call radarr.list_movies() to get all monitored movie paths",
-        "   3. Call emby_search() on unmatched paths",
-        "",
-        "   Files whose path does not start with any known root folder",
-        "   are candidates for manual review or cleanup.",
-        "",
-        "   Cross-reference context:",
-    ]
-    for line in cross_ref.split("\n"):
-        lines.append(f"     {line}")
     return "\n".join(lines)
 
 

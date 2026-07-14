@@ -98,13 +98,16 @@ class DownloadStationClient:
         return False
 
     async def _logout(self, client: httpx.AsyncClient) -> None:
-        """Release the SID. Best-effort — never raises."""
+        """Release the SID. Best-effort — never raises.
+
+        The SID goes in the POST body, not the query string, so the session
+        token never lands in DSM/proxy access logs."""
         if not self._sid:
             return
         try:
-            await client.get(
+            await client.post(
                 f"{self.base_url}{DS_API_BASE}/auth.cgi",
-                params={
+                data={
                     "api": "SYNO.API.Auth",
                     "version": "6",
                     "method": "logout",
@@ -120,8 +123,11 @@ class DownloadStationClient:
     async def _call(self, path: str, params: dict | None = None, method: str = "GET") -> dict:
         """Log in, make one authenticated request, then log out.
 
-        Raises DownloadStationError if authentication fails, so callers surface
-        the real cause instead of mistaking it for an empty result.
+        Everything is sent as a POST body (the DSM WebAPI accepts parameters
+        by GET query or POST form alike) so the SID stays out of URLs and
+        access logs. Raises DownloadStationError if authentication fails, so
+        callers surface the real cause instead of mistaking it for an empty
+        result.
         """
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             if not await self._login(client):
@@ -132,10 +138,7 @@ class DownloadStationClient:
                 request_params = dict(params or {})
                 request_params["_sid"] = self._sid
                 url = f"{self.base_url}{DS_API_BASE}{path}"
-                if method == "POST":
-                    resp = await client.post(url, params=request_params)
-                else:
-                    resp = await client.get(url, params=request_params)
+                resp = await client.post(url, data=request_params)
                 resp.raise_for_status()
                 return resp.json()
             finally:
@@ -182,13 +185,16 @@ async def download_station_list() -> str:
 
         if active:
             lines.append(f"── Active ({len(active)}) ──")
-            for t in active:
+            # Capped so a large task list can't flood the model's context.
+            for t in active[:20]:
                 title = t.get("title", "Unknown")
                 status = t.get("status", "?")
                 downloaded = t.get("additional", {}).get("transfer", {}).get("size_downloaded", "0")
                 progress = t.get("additional", {}).get("transfer", {}).get("downloaded_pct", "?")
                 lines.append(f"  • {title}")
                 lines.append(f"    Status: {status}  |  {progress}%  |  {downloaded} bytes downloaded")
+            if len(active) > 20:
+                lines.append(f"  ... and {len(active) - 20} more active tasks")
 
         if completed:
             lines.append(f"\n── Completed ({len(completed)}) ──")

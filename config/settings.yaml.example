@@ -9,15 +9,23 @@ server:
 llm:
   ollama_url: "http://agent-lab-ollama-1:11435"
   ollama_model: "qwen3.5:9b"
-  hosted_url: ""
-  hosted_key: ""
-  hosted_model: ""
+  # Optional hosted fallback (used when local Ollama fails / breaker opens).
+  # Unset env vars substitute to "" = no fallback configured.
+  hosted_url: "${HOSTED_LLM_URL}"
+  hosted_key: "${HOSTED_LLM_KEY}"
+  hosted_model: "${HOSTED_LLM_MODEL}"
   temperature: 0        # low temp = reliable tool calls (default 0.2 if omitted)
-  timeout: 15
-  num_ctx: 8192         # context window tokens
+  timeout: 120          # per-request LLM timeout in seconds (tool-calling turns
+                        # on a local model are slow — don't set this below ~60)
+  num_ctx: 16384        # context window tokens. 70 tool schemas + system prompt
+                        # + history overflow 8192, and Ollama truncates silently
+                        # from the top (dropping the system prompt first)
   num_predict: 1024     # max tokens per generation (caps runaway output)
   keep_alive: "30m"     # keep the model loaded in VRAM between requests
   reasoning: false      # disable qwen3 thinking blocks for faster replies
+  tool_scoping: true    # bind only the matched domain's ~10 tools per turn
+                        # (instead of all 92) — big accuracy + context win
+                        # for small models; ambiguous messages get all tools
 
 services:
   sonarr:
@@ -44,20 +52,92 @@ services:
     download_path: "/media/youtube"
     subscriptions_file: "/state/youtube_subs.json"
   audible:
-    # The Audible provider currently uses fixed paths (these are not yet
-    # configurable): auth at /config/audible/auth.json, downloads staged in
-    # /tmp/audible_downloads, sync state at /state/audible_downloaded.json.
-    {}
+    # auth_dir defaults to /state/audible (state volume — survives restarts;
+    # a legacy /config/audible/auth.json is still picked up if present).
+    # Sync state lives at /state/audible_downloaded.json.
+    auth_dir: "/state/audible"
+    download_path: "/media/audiobooks"
+  bandcamp:
+    download_path: "/media/music"
   roms:
     download_path: "/media/roms"
     dat_path: "/media/roms/_dat"
+  podcasts:
+    download_path: "/media/podcasts"
+    # subscriptions + downloaded-episode state live on /state automatically
+  twitch:
+    download_path: "/media/twitch"
+  # The sections below are optional integrations — leave the url empty (or
+  # remove the section) until the service is deployed; the matching tools
+  # then answer with a clear "not configured" message.
+  komga:
+    url: ""                      # e.g. http://<YOUR_NAS_IP>:25600
+    api_key: "${KOMGA_API_KEY}"
+  calibre:
+    url: ""                      # Calibre content server, e.g. http://<YOUR_NAS_IP>:8081
+    username: ""
+    password: "${CALIBRE_PASSWORD}"
+  lidarr:
+    url: ""                      # e.g. http://<YOUR_NAS_IP>:8686
+    api_key: "${LIDARR_API_KEY}"
+    quality_profile_id: 1
+    metadata_profile_id: 1
+    root_folder_path: "/media/music"
+  prowlarr:
+    url: ""                      # e.g. http://<YOUR_NAS_IP>:9696
+    api_key: "${PROWLARR_API_KEY}"
+  qbittorrent:
+    url: ""                      # e.g. http://<YOUR_NAS_IP>:8085
+    username: "${QBIT_USERNAME}"
+    password: "${QBIT_PASSWORD}"
 
 scheduler:
   enabled: false
   jobs: []
+
+telegram:
+  # Talk to the agent from Telegram. Get a token from @BotFather. The bot
+  # refuses every chat until its id is listed here (message it once — it
+  # replies with the id to add).
+  bot_token: "${TELEGRAM_BOT_TOKEN}"
+  allowed_chat_ids: []
+
+notifications:
+  # Optional: push scheduler results (health problems, daily report) to a
+  # webhook so they reach a human, not just the container log.
+  # kind: "ntfy"     → POST plain text (ntfy.sh topic URL)
+  # kind: "discord"  → POST {"content": ...} (Discord webhook URL)
+  # kind: "generic"  → POST {"title": ..., "message": ...} JSON
+  # kind: "telegram" → Telegram Bot API; needs chat_id below (reuses
+  #                    telegram.bot_token; url can stay empty)
+  url: ""
+  kind: "ntfy"
+  chat_id: ""
 
 library:
   media_root: "/media"
   naming_conventions:
     movies: "/movies/{title} ({year})/{title} ({year}).{ext}"
     tv: "/tv/{show}/Season {season:02d}/{show} - s{season:02d}e{episode:02d} - {title}.{ext}"
+
+users:
+  # Roles for the request/approval loop (seerr pattern). Leave admins EMPTY
+  # to keep the role system OFF — every interface then has full control,
+  # exactly as before (single-owner deployment).
+  #
+  # With admins set, listed Telegram chats (and all local interfaces: CLI,
+  # dashboard, API) keep full control; every other allowed Telegram chat
+  # becomes a *requester*: their "add X" goes into an approval queue with a
+  # rolling request quota, and admins get a push to approve/deny.
+  admins: []                    # e.g. ["123456789"]
+  names: {}                     # optional chat-id → name, e.g. {"987654": "alice"}
+  request_limit:                # rolling window quota for requesters
+    count: 5                    # 0 = unlimited
+    days: 7
+  overrides: {}                 # per-chat quota, e.g. {"987654": {count: 10}}
+
+cleanup:
+  # Quarantine-before-delete: "delete X in N days" holds the item in a
+  # 'Leaving Soon' ledger (and Emby collection) for the grace period; the
+  # daily sweep at 4:30 AM executes it unless someone says "keep X".
+  grace_days: 7
