@@ -82,20 +82,27 @@ async def add_movie(tmdb_id: int, title: str) -> str:
 
 
 @tool
-async def list_movies() -> str:
-    """List all monitored movies."""
+async def list_movies(page: int = 1) -> str:
+    """List monitored movies, 30 per page alphabetically.
+    Pass page=2, page=3, ... to continue through a large library."""
     try:
         movies = await _client()._get("/movie")
         if not movies:
             return "No movies are currently monitored."
-        lines = [f"Monitoring {len(movies)} movie(s):\n"]
-        for m in sorted(movies, key=lambda x: x.get("title", ""))[:30]:
+        page = max(1, page)
+        ordered = sorted(movies, key=lambda x: x.get("title", ""))
+        shown = ordered[(page - 1) * 30:page * 30]
+        if not shown:
+            return f"No movies on page {page} — the library has {len(movies)} movie(s)."
+        lines = [f"Monitoring {len(movies)} movie(s) (page {page}):\n"]
+        for m in shown:
             title = m.get("title", "Unknown")
             year = m.get("year", "")
             has_file = "✓" if m.get("hasFile") else "✗"
             lines.append(f"  • {title} ({year}) [{has_file}]")
-        if len(movies) > 30:
-            lines.append(f"\n  ... and {len(movies) - 30} more")
+        remaining = len(ordered) - page * 30
+        if remaining > 0:
+            lines.append(f"\n  ... {remaining} more — ask for page {page + 1}")
         return "\n".join(lines)
     except httpx.ConnectError:
         return "❌ Cannot connect to Radarr."

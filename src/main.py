@@ -72,6 +72,14 @@ def _run_server(host: str, port: int):
 
     shutdown_hooks.append(_close_runtime)
 
+    # Telegram interface — no-op unless telegram.bot_token is configured.
+    try:
+        from src.interfaces.telegram_bot import start_telegram_bot, stop_telegram_bot
+        startup_hooks.append(start_telegram_bot)
+        shutdown_hooks.append(stop_telegram_bot)
+    except Exception as e:
+        logger.warning("Telegram interface unavailable: %s", e)
+
     # Start scheduler in the main event loop (not a bare thread).
     # AsyncIOScheduler must bind to the running event loop.
     try:

@@ -139,7 +139,9 @@ Returns a self-contained HTML page (no external dependencies) showing:
 GET /api/dashboard/data
 ```
 
-**Auth:** Bearer token required (if `api_key` is configured)
+**Auth:** None — the dashboard is open by design (owner's choice). The
+container binds to loopback only; expose it beyond the box through a VPN or
+an authenticating reverse proxy. The `/v1` endpoints still require the key.
 
 Returns JSON health/activity data for programmatic access. The payload is
 cached server-side for ~20s (and the ROM file count for 5 minutes), so
@@ -149,7 +151,7 @@ multiple dashboard tabs don't multiply upstream load.
 POST /api/dashboard/chat
 ```
 
-**Auth:** Bearer token required (if `api_key` is configured)
+**Auth:** None (see above)
 
 Streams the agent's response (SSE, with `: keepalive` comment pings while
 the agent thinks) for a dashboard chat message. Body:
@@ -157,16 +159,14 @@ the agent thinks) for a dashboard chat message. Body:
 Each `session_id` gets its own conversation thread (`message` is capped at
 4000 chars); omitting it uses the shared legacy `dashboard` thread.
 
-This route drives the full agent, so it is gated behind the same
-`MEDIA_AGENT_API_KEY` as the `/v1` endpoints. Both the React dashboard and
-the inline fallback prompt for the key on the first 401 and store it in
-localStorage, sending it as a Bearer token from then on.
+The final SSE event may include `"suggest": ["yes", "no", ...]` — quick
+replies for a pending confirmation, rendered as buttons by the dashboard.
 
 ```
 POST /api/dashboard/reset
 ```
 
-**Auth:** Bearer token required (if `api_key` is configured)
+**Auth:** None (see above)
 
 Drops a session's conversation memory and pending confirmations. Body:
 `{"session_id": "..."}`. The dashboard's "New conversation" button calls this.

@@ -183,7 +183,15 @@ docker compose build --no-cache && docker compose up -d
 | `library` | `media_root`, `naming_conventions` | Library management paths and rules |
 | `services.bandcamp` | `download_path` | Bandcamp download root (default `/media/music`) |
 | `services.audible` | `auth_dir`, `download_path` | Audible auth (default `/state/audible`) and download root (default `/media/audiobooks`) |
-| `notifications` | `url`, `kind` | Optional webhook for scheduler findings (`ntfy`, `discord`, or `generic`) |
+| `notifications` | `url`, `kind`, `chat_id` | Optional push for scheduler findings (`ntfy`, `discord`, `generic`, or `telegram`) |
+| `services.podcasts` | `download_path` | Podcast episode downloads (default `/media/podcasts`) |
+| `services.twitch` | `download_path` | Twitch recordings (default `/media/twitch`) |
+| `services.komga` | `url`, `api_key` | Komga comic server (optional) |
+| `services.calibre` | `url`, `username`, `password` | Calibre content server (optional) |
+| `services.lidarr` | `url`, `api_key`, `quality_profile_id`, `metadata_profile_id`, `root_folder_path` | Lidarr music management (optional) |
+| `services.prowlarr` | `url`, `api_key` | Prowlarr unified indexer search (optional) |
+| `services.qbittorrent` | `url`, `username`, `password` | qBittorrent (optional; preferred over Download Station for magnets when set) |
+| `telegram` | `bot_token`, `allowed_chat_ids` | Telegram chat interface (optional; refuses chats not in the allowlist) |
 
 ### Environment Variables
 
@@ -199,6 +207,9 @@ docker compose build --no-cache && docker compose up -d
 | `HOSTED_LLM_MODEL` | No | — | Fallback LLM model name |
 | `MEDIA_AGENT_CONFIG` | No | `config/settings.yaml` | Custom config path |
 | `MEDIA_ROOT` | Recommended | `./media` | Host path mounted at `/media` (docker-compose) — point at the real media library |
+| `TELEGRAM_BOT_TOKEN` | No | — | Telegram bot token (from @BotFather) |
+| `LIDARR_API_KEY` / `PROWLARR_API_KEY` / `KOMGA_API_KEY` | No | — | Optional service integrations |
+| `QBIT_USERNAME` / `QBIT_PASSWORD` / `CALIBRE_PASSWORD` | No | — | Optional service credentials |
 
 ---
 

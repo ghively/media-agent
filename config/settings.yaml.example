@@ -59,19 +59,57 @@ services:
   roms:
     download_path: "/media/roms"
     dat_path: "/media/roms/_dat"
+  podcasts:
+    download_path: "/media/podcasts"
+    # subscriptions + downloaded-episode state live on /state automatically
+  twitch:
+    download_path: "/media/twitch"
+  # The sections below are optional integrations — leave the url empty (or
+  # remove the section) until the service is deployed; the matching tools
+  # then answer with a clear "not configured" message.
+  komga:
+    url: ""                      # e.g. http://<YOUR_NAS_IP>:25600
+    api_key: "${KOMGA_API_KEY}"
+  calibre:
+    url: ""                      # Calibre content server, e.g. http://<YOUR_NAS_IP>:8081
+    username: ""
+    password: "${CALIBRE_PASSWORD}"
+  lidarr:
+    url: ""                      # e.g. http://<YOUR_NAS_IP>:8686
+    api_key: "${LIDARR_API_KEY}"
+    quality_profile_id: 1
+    metadata_profile_id: 1
+    root_folder_path: "/media/music"
+  prowlarr:
+    url: ""                      # e.g. http://<YOUR_NAS_IP>:9696
+    api_key: "${PROWLARR_API_KEY}"
+  qbittorrent:
+    url: ""                      # e.g. http://<YOUR_NAS_IP>:8085
+    username: "${QBIT_USERNAME}"
+    password: "${QBIT_PASSWORD}"
 
 scheduler:
   enabled: false
   jobs: []
 
+telegram:
+  # Talk to the agent from Telegram. Get a token from @BotFather. The bot
+  # refuses every chat until its id is listed here (message it once — it
+  # replies with the id to add).
+  bot_token: "${TELEGRAM_BOT_TOKEN}"
+  allowed_chat_ids: []
+
 notifications:
   # Optional: push scheduler results (health problems, daily report) to a
   # webhook so they reach a human, not just the container log.
-  # kind: "ntfy"    → POST plain text (ntfy.sh topic URL)
-  # kind: "discord" → POST {"content": ...} (Discord webhook URL)
-  # kind: "generic" → POST {"title": ..., "message": ...} JSON
+  # kind: "ntfy"     → POST plain text (ntfy.sh topic URL)
+  # kind: "discord"  → POST {"content": ...} (Discord webhook URL)
+  # kind: "generic"  → POST {"title": ..., "message": ...} JSON
+  # kind: "telegram" → Telegram Bot API; needs chat_id below (reuses
+  #                    telegram.bot_token; url can stay empty)
   url: ""
   kind: "ntfy"
+  chat_id: ""
 
 library:
   media_root: "/media"

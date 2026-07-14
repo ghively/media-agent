@@ -84,23 +84,29 @@ async def add_tv_show(tvdb_id: int, title: str) -> str:
 
 
 @tool
-async def list_tv_shows() -> str:
-    """List all monitored TV shows."""
+async def list_tv_shows(page: int = 1) -> str:
+    """List monitored TV shows, 30 per page alphabetically.
+    Pass page=2, page=3, ... to continue through a large library."""
     try:
         series = await _client()._get("/series")
         if not series:
             return "No TV shows are currently monitored."
-        # Cap the listing: an unbounded dump of a big library can overflow
-        # the local model's context window mid-conversation.
-        shown = sorted(series, key=lambda x: x.get("title", ""))[:30]
-        lines = [f"Monitoring {len(series)} show(s):\n"]
+        # Paged: an unbounded dump of a big library can overflow the local
+        # model's context window mid-conversation.
+        page = max(1, page)
+        ordered = sorted(series, key=lambda x: x.get("title", ""))
+        shown = ordered[(page - 1) * 30:page * 30]
+        if not shown:
+            return f"No shows on page {page} — the library has {len(series)} show(s)."
+        lines = [f"Monitoring {len(series)} show(s) (page {page}):\n"]
         for s in shown:
             stats = s.get("statistics", {})
             seasons = stats.get("seasonCount", 0)
             episodes = stats.get("episodeFileCount", 0)
             lines.append(f"  • {s['title']} — {seasons} seasons, {episodes} episodes")
-        if len(series) > len(shown):
-            lines.append(f"\n  ... and {len(series) - len(shown)} more (ask about a specific show)")
+        remaining = len(ordered) - page * 30
+        if remaining > 0:
+            lines.append(f"\n  ... {remaining} more — ask for page {page + 1}")
         return "\n".join(lines)
     except httpx.ConnectError:
         return "❌ Cannot connect to Sonarr."

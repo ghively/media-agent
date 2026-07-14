@@ -1,5 +1,4 @@
 const API = '/api/dashboard'
-const KEY_STORAGE = 'media-agent-api-key'
 
 // One conversation per page load: a fresh session id means the visible chat
 // and the agent's memory always agree (a reload starts clean on both sides).
@@ -13,56 +12,19 @@ function newSessionId() {
   }
 }
 
-export function getApiKey() {
-  try {
-    return localStorage.getItem(KEY_STORAGE) || ''
-  } catch {
-    return ''
-  }
-}
-
-export function setApiKey(key) {
-  try {
-    if (key) localStorage.setItem(KEY_STORAGE, key)
-    else localStorage.removeItem(KEY_STORAGE)
-  } catch {
-    // Private-mode browsers without localStorage: key lives for this page only.
-  }
-}
-
-function authHeaders(extra = {}) {
-  const key = getApiKey()
-  return key ? { ...extra, Authorization: `Bearer ${key}` } : extra
-}
-
-// Thrown on 401 so the UI can prompt for the API key instead of showing a
-// generic error.
-export class AuthRequiredError extends Error {
-  constructor() {
-    super('API key required')
-    this.name = 'AuthRequiredError'
-  }
-}
-
-function checkResp(resp) {
-  if (resp.status === 401) throw new AuthRequiredError()
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-  return resp
-}
-
 export async function fetchData() {
-  const resp = await fetch(`${API}/data`, { headers: authHeaders() })
-  checkResp(resp)
+  const resp = await fetch(`${API}/data`)
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
   return resp.json()
 }
 
 export async function sendChat(message) {
   const resp = await fetch(`${API}/chat`, {
     method: 'POST',
-    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message, session_id: sessionId }),
   })
-  checkResp(resp)
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
   return resp.json()
 }
 
@@ -76,7 +38,7 @@ export async function resetConversation() {
   try {
     await fetch(`${API}/reset`, {
       method: 'POST',
-      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: old }),
     })
   } catch {
@@ -86,19 +48,17 @@ export async function resetConversation() {
 
 /**
  * Stream chat via SSE using fetch + ReadableStream.
- * Calls onToken for each chunk, onDone when complete, onAuthRequired on 401.
+ * Calls onToken for each chunk, onDone(full, suggestions) when complete —
+ * suggestions is a list of quick-reply strings when a confirmation is
+ * pending (yes/no/pick buttons), else undefined.
  */
-export async function streamChat(message, { onToken, onDone, onError, onAuthRequired }) {
+export async function streamChat(message, { onToken, onDone, onError }) {
   try {
     const resp = await fetch(`${API}/chat`, {
       method: 'POST',
-      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message, session_id: sessionId }),
     })
-    if (resp.status === 401) {
-      onAuthRequired?.()
-      return
-    }
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
     const reader = resp.body.getReader()
     const decoder = new TextDecoder()
@@ -122,7 +82,7 @@ export async function streamChat(message, { onToken, onDone, onError, onAuthRequ
               onToken?.(payload.content)
             }
             if (payload.done) {
-              onDone?.(payload.full || '')
+              onDone?.(payload.full || '', payload.suggest)
               return
             }
           } catch (e) {
