@@ -1,29 +1,58 @@
-"""Audible audiobook provider — wraps audible-cli with OAuth + DRM removal."""
+"""Audible audiobook provider — wraps audible-cli with OAuth + DRM removal.
+
+Paths come from ``settings.audible`` (config/settings.yaml):
+
+- ``auth_dir``: directory holding ``auth.json``. Defaults to ``/state/audible``
+  (on the mounted state volume) so authentication survives container
+  restarts. A legacy auth file at ``/config/audible/auth.json`` is still
+  picked up when the configured location has none.
+- ``download_path``: where decrypted M4B files land. Defaults to
+  ``/media/audiobooks`` (on the mounted media volume) so Emby can see them.
+"""
 import asyncio
 import json
 import os
 from pathlib import Path
 from langchain_core.tools import tool
 
+from src.config import get_settings
 
 # Import emby_scan for auto-triggering after downloads
 from src.tools.emby import _client as _emby_client_factory
 
-AUDIBLE_AUTH_DIR = Path("/config/audible")
-AUDIBLE_AUTH_FILE = AUDIBLE_AUTH_DIR / "auth.json"
-AUDIBLE_DOWNLOAD_DIR = Path("/tmp/audible_downloads")
+# Pre-fix deployments kept auth here (unmounted in stock compose, so it did
+# not actually survive restarts — but a manually mounted /config might have it).
+_LEGACY_AUTH_FILE = Path("/config/audible/auth.json")
+
+
+def _auth_file() -> Path:
+    cfg = get_settings().audible
+    configured = cfg.get("auth_dir")
+    if configured:
+        return Path(configured) / "auth.json"
+    default = Path("/state/audible/auth.json")
+    if not default.exists() and _LEGACY_AUTH_FILE.exists():
+        return _LEGACY_AUTH_FILE
+    return default
+
+
+def _download_dir() -> Path:
+    cfg = get_settings().audible
+    return Path(cfg.get("download_path") or "/media/audiobooks")
 
 
 @tool
 async def audible_list_library() -> str:
-    """List all audiobooks in your Audible library."""
+    """List all audiobooks in your Audible library, with the ASIN codes
+    needed by audible_download."""
     try:
-        if not AUDIBLE_AUTH_FILE.exists():
+        auth_file = _auth_file()
+        if not auth_file.exists():
             return "❌ Audible not authenticated. Run `audible_setup_auth` first."
 
         proc = await asyncio.create_subprocess_exec(
             "audible", "library", "list",
-            "--auth-file", str(AUDIBLE_AUTH_FILE),
+            "--auth-file", str(auth_file),
             "--output", "json",
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
@@ -41,7 +70,8 @@ async def audible_list_library() -> str:
             title = book.get("title", "Unknown")
             author = book.get("authors", [{}])[0].get("name", "Unknown")
             duration = book.get("runtime_length_min", "?")
-            lines.append(f"  • {title} by {author} ({duration} min)")
+            asin = book.get("asin", "?")
+            lines.append(f"  • {title} by {author} ({duration} min) [ASIN: {asin}]")
         if len(books) > 30:
             lines.append(f"\n  ... and {len(books) - 30} more")
         return "\n".join(lines)
@@ -57,17 +87,18 @@ async def audible_download(asin: str) -> str:
     """Download an audiobook by ASIN (Amazon Standard Identification Number).
     Downloads as AAXC, then decrypts to M4B with embedded metadata."""
     try:
-        if not AUDIBLE_AUTH_FILE.exists():
+        auth_file = _auth_file()
+        if not auth_file.exists():
             return "❌ Audible not authenticated. Run `audible_setup_auth` first."
 
-        # Create download directory
-        os.makedirs(AUDIBLE_DOWNLOAD_DIR, exist_ok=True)
+        download_dir = _download_dir()
+        os.makedirs(download_dir, exist_ok=True)
 
         # Step 1: Download AAXC
         proc = await asyncio.create_subprocess_exec(
             "audible", "download", "--asin", asin,
-            "--auth-file", str(AUDIBLE_AUTH_FILE),
-            "--output-dir", str(AUDIBLE_DOWNLOAD_DIR),
+            "--auth-file", str(auth_file),
+            "--output-dir", str(download_dir),
             "--aaxc",
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
@@ -77,7 +108,7 @@ async def audible_download(asin: str) -> str:
             return f"❌ Audible download failed: {stderr.decode()[:500]}"
 
         # Find the downloaded AAXC file
-        aaxc_files = list(Path(AUDIBLE_DOWNLOAD_DIR).rglob("*.aaxc"))
+        aaxc_files = list(download_dir.rglob("*.aaxc"))
         if not aaxc_files:
             return "❌ Downloaded file not found (AAXC)."
 
@@ -89,7 +120,7 @@ async def audible_download(asin: str) -> str:
             "audible", "decrypt",
             "--input", str(aaxc_path),
             "--output", str(output_path),
-            "--auth-file", str(AUDIBLE_AUTH_FILE),
+            "--auth-file", str(auth_file),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
@@ -122,16 +153,20 @@ async def audible_download(asin: str) -> str:
 
 
 @tool
-async def audible_download_new() -> str:
-    """Download audiobooks added to your library since the last sync."""
+async def audible_download_new(confirm: bool = False) -> str:
+    """Download audiobooks added to your library since the last sync (bulk,
+    up to 5 per run). Call with confirm=False first: it lists what would be
+    downloaded without downloading. After the user approves, call again with
+    confirm=True to start the downloads."""
     try:
-        if not AUDIBLE_AUTH_FILE.exists():
+        auth_file = _auth_file()
+        if not auth_file.exists():
             return "❌ Audible not authenticated. Run `audible_setup_auth` first."
 
         # Get library
         proc = await asyncio.create_subprocess_exec(
             "audible", "library", "list",
-            "--auth-file", str(AUDIBLE_AUTH_FILE),
+            "--auth-file", str(auth_file),
             "--output", "json",
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
@@ -154,6 +189,20 @@ async def audible_download_new() -> str:
         if not new_books:
             return "No new audiobooks found since last sync."
 
+        if not confirm:
+            preview = "\n".join(
+                f"  • {b.get('title', 'Unknown')} ({b['asin']})" for b in new_books[:5]
+            )
+            extra = f"\n  ... and {len(new_books) - 5} more (next runs)" if len(new_books) > 5 else ""
+            return (
+                f"⏸️ {len(new_books)} new audiobook(s) to download:\n{preview}{extra}\n\n"
+                "Nothing downloaded yet. Ask the user to approve, then call "
+                "audible_download_new again with confirm=true."
+            )
+
+        download_dir = _download_dir()
+        os.makedirs(download_dir, exist_ok=True)
+
         results = []
         success_count = 0
         for book in new_books[:5]:  # Limit to 5 per sync
@@ -163,8 +212,8 @@ async def audible_download_new() -> str:
             # Download each book
             proc = await asyncio.create_subprocess_exec(
                 "audible", "download", "--asin", asin,
-                "--auth-file", str(AUDIBLE_AUTH_FILE),
-                "--output-dir", str(AUDIBLE_DOWNLOAD_DIR),
+                "--auth-file", str(auth_file),
+                "--output-dir", str(download_dir),
                 "--aaxc",
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             )
@@ -196,14 +245,16 @@ async def audible_download_new() -> str:
 async def audible_setup_auth() -> str:
     """Set up Audible authentication. Run this first to configure audible-cli.
     Requires a browser login flow — you'll be prompted for a verification code."""
+    auth_file = _auth_file()
     return (
         "⚠️ Audible authentication setup requires user interaction.\n\n"
         "To set up:\n"
-        "1. Run: `audible quickstart --auth-file /config/audible/auth.json`\n"
+        f"1. Run: `audible quickstart --auth-file {auth_file}`\n"
         "2. You'll be prompted to open a URL in a browser\n"
         "3. Log in to Amazon and paste the redirect URL back\n"
         "4. Once complete, run `audible_check_auth` to verify\n\n"
-        "The auth file will persist in /config/audible/ and survive container restarts.\n"
+        f"The auth file persists in {auth_file.parent}/ (on the state volume) "
+        "and survives container restarts.\n"
         "Auth tokens expire ~30 days — the agent will prompt you to re-authenticate."
     )
 
@@ -211,10 +262,11 @@ async def audible_setup_auth() -> str:
 @tool
 async def audible_check_auth() -> str:
     """Check if Audible authentication is still valid."""
-    if not AUDIBLE_AUTH_FILE.exists():
-        return "❌ Not authenticated. Run `audible_setup_auth` to configure."
     try:
-        size = AUDIBLE_AUTH_FILE.stat().st_size
+        auth_file = _auth_file()
+        if not auth_file.exists():
+            return "❌ Not authenticated. Run `audible_setup_auth` to configure."
+        size = auth_file.stat().st_size
         if size > 100:
             return f"✅ Auth file found ({size // 1024} KB). Run `audible_list_library` to verify it works."
         else:

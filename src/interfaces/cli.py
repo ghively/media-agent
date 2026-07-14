@@ -67,7 +67,7 @@ async def cli_one_shot(query: str):
             response = await _answer(query, thread_id)
         console.print(response)
     finally:
-        forget_thread(thread_id)
+        await forget_thread(thread_id)
 
 
 async def cli_health():

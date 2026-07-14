@@ -6,8 +6,18 @@ Full audit of production readiness and feature gaps across the web
 dashboard / API interfaces and the LangGraph agent runtime, including
 tuning for the stated purpose (a 9B local model managing a personal media
 ecosystem through 70 tools). Every finding below was verified against the
-code at the referenced location. This section reports findings only — no
-code was changed in this pass.
+code at the referenced location.
+
+> **✅ Fix pass (same day):** every finding below — C1–C2, H1–H5, M1–M16,
+> and the Low list — was fixed in the follow-up commits on this branch and
+> verified (188/188 tests pass; server boots with auth + per-session chat +
+> SQLite memory exercised live; React dashboard builds). Of the feature
+> gaps: #1 (dashboard auth), #2 (media volume), #3 (webhook notifications),
+> #5 (persistent memory), #7 (per-session threads), and #8 (tool audit log)
+> shipped with the fixes. Still open: yes/no confirmation *buttons* (#4 —
+> typed yes/no still, but a "New conversation" reset button was added),
+> pagination params (#6 — output caps added instead), and the roadmap
+> items in #9. Line numbers in the findings refer to the pre-fix tree.
 
 ### Verdict in one paragraph
 

@@ -90,12 +90,17 @@ async def list_tv_shows() -> str:
         series = await _client()._get("/series")
         if not series:
             return "No TV shows are currently monitored."
+        # Cap the listing: an unbounded dump of a big library can overflow
+        # the local model's context window mid-conversation.
+        shown = sorted(series, key=lambda x: x.get("title", ""))[:30]
         lines = [f"Monitoring {len(series)} show(s):\n"]
-        for s in sorted(series, key=lambda x: x.get("title", "")):
+        for s in shown:
             stats = s.get("statistics", {})
             seasons = stats.get("seasonCount", 0)
             episodes = stats.get("episodeFileCount", 0)
             lines.append(f"  • {s['title']} — {seasons} seasons, {episodes} episodes")
+        if len(series) > len(shown):
+            lines.append(f"\n  ... and {len(series) - len(shown)} more (ask about a specific show)")
         return "\n".join(lines)
     except httpx.ConnectError:
         return "❌ Cannot connect to Sonarr."
@@ -105,7 +110,8 @@ async def list_tv_shows() -> str:
 
 @tool
 async def get_tv_queue() -> str:
-    """Check current Sonarr download queue."""
+    """Check ONLY Sonarr's TV download queue. For a combined view across
+    all services, use check_queue_status instead."""
     try:
         result = await _client()._get("/queue")
         records = result.get("records", []) if isinstance(result, dict) else result
@@ -248,7 +254,8 @@ async def sonarr_list_root_folders() -> str:
 
 @tool
 async def refresh_tv_show(series_id: int) -> str:
-    """Refresh a TV show's metadata and disk scan."""
+    """Refresh ONE show's metadata in Sonarr by its Sonarr series ID.
+    For making new downloads appear in Emby, use emby_scan instead."""
     try:
         result = await _client()._post("/command", {"name": "RefreshSeries", "seriesId": series_id})
         return f"✅ Refresh triggered for series ID {series_id}."

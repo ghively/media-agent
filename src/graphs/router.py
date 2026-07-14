@@ -273,9 +273,12 @@ async def _add_result(result: dict) -> str:
         return await add_movie.ainvoke({"tmdb_id": int(source_id), "title": title})
     if source_type == "rom":
         from src.providers.rom import rom_download
+        # The user already picked this set from numbered results — that IS
+        # the confirmation, so skip the tool's own confirm gate.
         return await rom_download.ainvoke({
             "identifier": str(source_id),
             "platform": result.get("platform", ""),
+            "confirm": True,
         })
     from src.tools.sonarr import add_tv_show
     return await add_tv_show.ainvoke({"tvdb_id": int(source_id), "title": title})
@@ -778,7 +781,16 @@ async def _h_audible_library(match, thread_id):
 
 async def _h_audible_new(match, thread_id):
     from src.providers.audible import audible_download_new
-    return await audible_download_new.ainvoke({})
+
+    async def _do_sync():
+        return await audible_download_new.ainvoke({"confirm": True})
+
+    return _confirm_action(
+        thread_id,
+        "This downloads any newly purchased audiobooks (up to 5 per run). "
+        "Go ahead? (yes/no)",
+        _do_sync,
+    )
 
 
 async def _h_audible_check(match, thread_id):
@@ -809,7 +821,7 @@ async def _h_bandcamp_collection(match, thread_id):
     from src.providers.bandcamp import bandcamp_download_collection
 
     async def _do_collection():
-        return await bandcamp_download_collection.ainvoke({})
+        return await bandcamp_download_collection.ainvoke({"confirm": True})
 
     return _confirm_action(
         thread_id,
@@ -857,7 +869,7 @@ async def _h_lib_fix_naming(match, thread_id):
 
     async def _do_fix():
         return await library_fix_naming.ainvoke(
-            {"path": path, "convention": convention})
+            {"path": path, "convention": convention, "confirm": True})
 
     return _confirm_action(
         thread_id,
@@ -880,16 +892,31 @@ async def _h_lib_undo(match, thread_id):
 _DEICTIC_QUERIES = {"it", "that", "this", "them", "those", "these", "one",
                     "both", "all of them", "everything"}
 
+# Nouns that name a command target, not a media title. "get the tv calendar"
+# uses a verb the calendar intent doesn't know, so it lands in the add/search
+# catch-alls — without this guard it becomes a Sonarr/Radarr title search for
+# "calendar". Fall through to the LLM instead.
+_COMMAND_NOUN_RE = re.compile(
+    r"^(?:the |my |all )*"
+    r"(?:calendar|queues?|history|downloads?|health|status|"
+    r"library|libraries|subscriptions?|torrents?|disk ?space|space|"
+    r"missing|inventory|duplicates?|collection|settings?|config)$",
+    re.IGNORECASE)
+
 
 def _is_deictic(query: str) -> bool:
     q = query.lower().strip()
     return q in _DEICTIC_QUERIES or _PICK_RE.match(q) is not None
 
 
+def _is_command_noun(query: str) -> bool:
+    return _COMMAND_NOUN_RE.match(query.strip()) is not None
+
+
 async def _h_search(match, thread_id):
     raw = match.group("query").strip()
     query, media_type = _extract_media_query(raw)
-    if not query or len(query) > 80 or _is_deictic(query):
+    if not query or len(query) > 80 or _is_deictic(query) or _is_command_noun(query):
         return None  # let the LLM interpret unusual queries
     results = await _structured_search(query, media_type)
     if not results:
@@ -901,7 +928,7 @@ async def _h_search(match, thread_id):
 async def _h_add(match, thread_id):
     raw = match.group("query").strip()
     query, media_type = _extract_media_query(raw)
-    if not query or len(query) > 80 or _is_deictic(query):
+    if not query or len(query) > 80 or _is_deictic(query) or _is_command_noun(query):
         return None
     results = await _structured_search(query, media_type)
     if not results:

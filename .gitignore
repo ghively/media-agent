@@ -30,3 +30,6 @@ src/static/
 # OS
 .DS_Store
 Thumbs.db
+
+# Default local media mount (compose MEDIA_ROOT fallback)
+media/

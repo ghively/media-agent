@@ -105,7 +105,8 @@ async def list_movies() -> str:
 
 @tool
 async def get_movie_queue() -> str:
-    """Check current Radarr download queue."""
+    """Check ONLY Radarr's movie download queue. For a combined view across
+    all services, use check_queue_status instead."""
     try:
         result = await _client()._get("/queue")
         records = result.get("records", []) if isinstance(result, dict) else result
@@ -223,7 +224,8 @@ async def radarr_list_root_folders() -> str:
 
 @tool
 async def refresh_movie(movie_id: int) -> str:
-    """Refresh a movie's metadata and disk scan."""
+    """Refresh ONE movie's metadata in Radarr by its Radarr movie ID.
+    For making new downloads appear in Emby, use emby_scan instead."""
     try:
         result = await _client()._post("/command", {"name": "RefreshMovie", "movieId": movie_id})
         return f"✅ Refresh triggered for movie ID {movie_id}."

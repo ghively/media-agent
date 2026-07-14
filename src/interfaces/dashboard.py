@@ -14,19 +14,38 @@ Usage in main.py::
     mount_dashboard(app)
 """
 import asyncio
+import re
 import time
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, Header, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.config import get_settings
 from src.interfaces.openai_api import _check_auth
 
+_SESSION_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+
 
 class ChatRequest(BaseModel):
-    message: str
+    # Cap the message so a pasted wall of text can't blow out the model's
+    # context window (the router already ignores anything over 300 chars).
+    message: str = Field(max_length=4000)
+    # Optional per-tab session id from the frontend. Each id gets its own
+    # conversation thread; without one, everything shares the legacy
+    # "dashboard" thread (inline fallback pre-refresh, curl).
+    session_id: str | None = None
+
+
+class ResetRequest(BaseModel):
+    session_id: str | None = None
+
+
+def _thread_for(session_id: str | None) -> str:
+    if session_id and _SESSION_RE.match(session_id):
+        return f"dashboard-{session_id}"
+    return "dashboard"
 
 
 def mount_dashboard(app: FastAPI) -> None:
@@ -62,25 +81,36 @@ def _register_routes(app: FastAPI) -> None:
         # These routes drive the full agent, so gate them behind the same
         # credential as the OpenAI-compatible API.
         _check_auth(authorization)
-        data = await _gather_all_data()
+        data = await _gather_all_data_cached()
         return JSONResponse(data)
+
+    @app.post("/api/dashboard/reset", include_in_schema=False)
+    async def dashboard_reset(req: ResetRequest, authorization: str | None = Header(None)):
+        """Drop a conversation thread's memory and pending confirmations."""
+        _check_auth(authorization)
+        from src.graphs.conversational import forget_thread
+        from src.graphs.router import clear_pending
+
+        thread_id = _thread_for(req.session_id)
+        await forget_thread(thread_id)
+        clear_pending(thread_id)
+        return JSONResponse({"status": "ok"})
 
     @app.post("/api/dashboard/chat", include_in_schema=False)
     async def dashboard_chat(req: ChatRequest, authorization: str | None = Header(None)):
         """Chat endpoint for the dashboard. Streams response as SSE.
 
-        Uses a fixed thread_id ("dashboard") so conversation history persists
-        across messages via the agent's MemorySaver checkpointer. This lets
-        follow-up messages like "add the first one" reference earlier results.
+        Each frontend session gets its own thread_id, so two open tabs don't
+        interleave context or answer each other's pending confirmations.
+        Within a session, history persists via the agent's checkpointer so
+        follow-ups like "add the first one" keep their context.
         """
         _check_auth(authorization)
         import json as _json
 
-        # All dashboard messages share one conversation thread, so follow-ups
-        # like "add the first one" keep their context.
-        thread_id = "dashboard"
+        thread_id = _thread_for(req.session_id)
 
-        async def _stream():
+        async def _events():
             from src.graphs.conversational import record_exchange, stream_agent
             from src.graphs.router import try_route
 
@@ -103,10 +133,56 @@ def _register_routes(app: FastAPI) -> None:
             except Exception as e:
                 yield f"data: {_json.dumps({'content': '', 'done': True, 'error': f'❌ {type(e).__name__}: {e}'})}\n\n"
 
-        return StreamingResponse(_stream(), media_type="text/event-stream")
+        return StreamingResponse(_keepalive(_events()), media_type="text/event-stream")
+
+
+async def _keepalive(events, interval: float = 15.0):
+    """Interleave SSE comment pings while the agent is thinking.
+
+    Local-LLM turns can take minutes; without traffic, reverse proxies drop
+    the connection on idle timeout. SSE comment lines (": ...") are ignored
+    by every SSE parser, including the dashboard's.
+    """
+    agen = events.__aiter__()
+    next_event = asyncio.ensure_future(agen.__anext__())
+    try:
+        while True:
+            try:
+                yield await asyncio.wait_for(asyncio.shield(next_event), timeout=interval)
+            except asyncio.TimeoutError:
+                yield ": keepalive\n\n"
+                continue
+            except StopAsyncIteration:
+                return
+            next_event = asyncio.ensure_future(agen.__anext__())
+    finally:
+        if not next_event.done():
+            next_event.cancel()
+        await agen.aclose()
 
 
 # ── data gathering ────────────────────────────────────────────────────────
+
+# Every open tab polls every 30s and each poll fans out ~10 upstream HTTP
+# calls plus filesystem walks. Cache the assembled payload briefly and
+# coalesce concurrent requests so N tabs cost the same as one.
+_DATA_TTL_SECONDS = 20.0
+_data_cache: dict = {"at": 0.0, "data": None}
+_data_lock = asyncio.Lock()
+
+
+async def _gather_all_data_cached() -> dict:
+    now = time.monotonic()
+    if _data_cache["data"] is not None and now - _data_cache["at"] < _DATA_TTL_SECONDS:
+        return _data_cache["data"]
+    async with _data_lock:
+        now = time.monotonic()
+        if _data_cache["data"] is not None and now - _data_cache["at"] < _DATA_TTL_SECONDS:
+            return _data_cache["data"]
+        data = await _gather_all_data()
+        _data_cache["data"] = data
+        _data_cache["at"] = time.monotonic()
+        return data
 
 
 async def _gather_all_data() -> dict:
@@ -313,8 +389,8 @@ async def _gather_download_station(settings) -> dict | None:
                 return _ds_error("authentication failed — check credentials")
             sid = auth_data["data"]["sid"]
 
-            # List tasks
-            task_resp = await client.get(f"{base}/webapi/entry.cgi", params={
+            # List tasks (SID in the POST body — keeps it out of access logs)
+            task_resp = await client.post(f"{base}/webapi/entry.cgi", data={
                 "api": "SYNO.DownloadStation.Task", "version": "2",
                 "method": "list", "additional": "detail",
                 "_sid": sid,
@@ -322,7 +398,7 @@ async def _gather_download_station(settings) -> dict | None:
             task_data = task_resp.json()
 
             # Logout
-            await client.get(f"{base}/webapi/auth.cgi", params={
+            await client.post(f"{base}/webapi/auth.cgi", data={
                 "api": "SYNO.API.Auth", "version": "6", "method": "logout", "_sid": sid,
             })
 
@@ -355,6 +431,27 @@ async def _gather_download_station(settings) -> dict | None:
         return _ds_error(f"{type(e).__name__}: {e}")
 
 
+# Counting a big ROM library (possibly over NFS) is the most expensive part
+# of a dashboard poll — cache it much longer than the payload cache.
+_ROM_COUNT_TTL_SECONDS = 300.0
+_rom_count_cache: dict = {"at": 0.0, "dir": None, "count": 0}
+
+
+def _rom_file_count(rom_dir) -> int:
+    now = time.monotonic()
+    if (_rom_count_cache["dir"] == str(rom_dir)
+            and now - _rom_count_cache["at"] < _ROM_COUNT_TTL_SECONDS):
+        return _rom_count_cache["count"]
+    count = 0
+    if rom_dir.exists():
+        try:
+            count = sum(1 for f in rom_dir.rglob("*") if f.is_file())
+        except Exception:
+            pass
+    _rom_count_cache.update({"at": now, "dir": str(rom_dir), "count": count})
+    return count
+
+
 def _check_local_tools(settings) -> dict:
     """Check availability of local-only tools (YouTube, Audible, ROMs).
     These don't have remote health endpoints — we check if their config
@@ -384,9 +481,9 @@ def _check_local_tools(settings) -> dict:
     }
 
     # Audible — check if audible-cli is installed and auth exists
-    audible_cfg = settings.audible
     audible_available = shutil.which("audible") is not None
-    auth_file = Path(audible_cfg.get("auth_dir", "/config/audible")) / "auth.json"
+    from src.providers.audible import _auth_file
+    auth_file = _auth_file()
     auth_status = "authenticated" if auth_file.exists() else "not authenticated"
     tools["audible"] = {
         "name": "Audible",
@@ -401,12 +498,7 @@ def _check_local_tools(settings) -> dict:
     ia_available = shutil.which("ia") is not None
     roms_cfg = settings.roms
     rom_dir = Path(roms_cfg.get("library_dir") or roms_cfg.get("download_path") or "/media/roms")
-    rom_count = 0
-    if rom_dir.exists():
-        try:
-            rom_count = sum(1 for _ in rom_dir.rglob("*") if _.is_file())
-        except Exception:
-            pass
+    rom_count = _rom_file_count(rom_dir)
     tools["roms"] = {
         "name": "Classic Games (ROMs)",
         "status": "available" if ia_available else "error",
@@ -495,26 +587,55 @@ async def _gather_activity(settings) -> list:
 
 
 async def _gather_disk_space(settings) -> dict:
-    """Try to get SABnzbd disk space (it reports NAS storage info)."""
+    """Disk info from SABnzbd, falling back to Radarr/Sonarr /diskspace.
+
+    SABnzbd reports the NAS download volume directly; when it's absent or
+    down, the *arr diskspace API still gives the media volume so the card
+    isn't blank."""
     try:
         cfg = settings.sabnzbd
-        if not cfg.get("url"):
-            return {}
-        import httpx
-        base = cfg["url"].rstrip("/")
-        params = {"mode": "queue", "output": "json", "apikey": cfg["api_key"]}
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(f"{base}/api", params=params)
-            resp.raise_for_status()
-            data = resp.json()
-        queue = data.get("queue", {})
-        return {
-            "download_dir": queue.get("download_dir", ""),
-            "disk_free_1": queue.get("disk_free_1", ""),
-            "disk_total_1": queue.get("disk_total_1", ""),
-        }
+        if cfg.get("url"):
+            import httpx
+            base = cfg["url"].rstrip("/")
+            params = {"mode": "queue", "output": "json", "apikey": cfg["api_key"]}
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(f"{base}/api", params=params)
+                resp.raise_for_status()
+                data = resp.json()
+            queue = data.get("queue", {})
+            if queue.get("disk_total_1"):
+                return {
+                    "download_dir": queue.get("download_dir", ""),
+                    "disk_free_1": queue.get("disk_free_1", ""),
+                    "disk_total_1": queue.get("disk_total_1", ""),
+                }
     except Exception:
-        return {}
+        pass
+
+    # Fallback: largest volume reported by Radarr (then Sonarr).
+    for service in ("radarr", "sonarr"):
+        try:
+            cfg = getattr(settings, service)
+            if not cfg.get("url"):
+                continue
+            if service == "radarr":
+                from src.tools.radarr import RadarrClient as Client
+            else:
+                from src.tools.sonarr import SonarrClient as Client
+            disks = await Client(cfg["url"], cfg["api_key"])._get("/diskspace")
+            if isinstance(disks, list) and disks:
+                disk = max(disks, key=lambda d: d.get("totalSpace", 0))
+                total = disk.get("totalSpace", 0)
+                free = disk.get("freeSpace", 0)
+                if total:
+                    return {
+                        "download_dir": disk.get("path", ""),
+                        "disk_free_1": f"{free / 1024**3:.1f}",
+                        "disk_total_1": f"{total / 1024**3:.1f}",
+                    }
+        except Exception:
+            continue
+    return {}
 
 
 def _format_queue_item(record: dict) -> dict:
@@ -787,6 +908,39 @@ _DASHBOARD_HTML = r"""
 <script>
 const CARD_SERVICES = ["sonarr", "radarr", "emby", "sabnzbd", "download_station"];
 
+// One conversation per page load; lets the server keep tabs' chats separate.
+const SESSION_ID = (crypto.randomUUID
+  ? crypto.randomUUID().replace(/-/g, "")
+  : "s" + Date.now() + Math.floor(Math.random() * 1e9));
+
+// API key support: stored in localStorage, sent as a Bearer token. A 401
+// prompts once for the key and retries.
+function apiKey() {
+  try { return localStorage.getItem("media-agent-api-key") || ""; } catch (_) { return ""; }
+}
+
+function authHeaders(extra) {
+  const h = extra || {};
+  const key = apiKey();
+  if (key) h["Authorization"] = "Bearer " + key;
+  return h;
+}
+
+async function authedFetch(url, options) {
+  options = options || {};
+  options.headers = authHeaders(options.headers);
+  let resp = await fetch(url, options);
+  if (resp.status === 401) {
+    const key = prompt("This server requires an API key (MEDIA_AGENT_API_KEY):");
+    if (key) {
+      try { localStorage.setItem("media-agent-api-key", key.trim()); } catch (_) {}
+      options.headers = authHeaders(options.headers);
+      resp = await fetch(url, options);
+    }
+  }
+  return resp;
+}
+
 function esc(text) {
   const d = document.createElement("div");
   d.textContent = text || "";
@@ -794,7 +948,6 @@ function esc(text) {
 }
 
 function badge(status) {
-  const display = status === "download_station" ? "download-station" : status;
   return `<span class="badge badge-${status}">${status}</span>`;
 }
 
@@ -907,7 +1060,7 @@ async function fetchData() {
   const dot = document.getElementById("refresh-dot");
   dot.className = "refresh-dot fetching";
   try {
-    const resp = await fetch("/api/dashboard/data");
+    const resp = await authedFetch("/api/dashboard/data");
     if (!resp.ok) throw new Error("HTTP " + resp.status);
     const data = await resp.json();
     renderData(data);
@@ -947,10 +1100,10 @@ async function sendChat() {
   msgs.scrollTop = msgs.scrollHeight;
 
   try {
-    const resp = await fetch("/api/dashboard/chat", {
+    const resp = await authedFetch("/api/dashboard/chat", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({message: msg}),
+      body: JSON.stringify({message: msg, session_id: SESSION_ID}),
     });
     if (!resp.ok) throw new Error("HTTP " + resp.status);
 

@@ -9,12 +9,17 @@ server:
 llm:
   ollama_url: "http://agent-lab-ollama-1:11435"
   ollama_model: "qwen3.5:9b"
-  hosted_url: ""
-  hosted_key: ""
-  hosted_model: ""
+  # Optional hosted fallback (used when local Ollama fails / breaker opens).
+  # Unset env vars substitute to "" = no fallback configured.
+  hosted_url: "${HOSTED_LLM_URL}"
+  hosted_key: "${HOSTED_LLM_KEY}"
+  hosted_model: "${HOSTED_LLM_MODEL}"
   temperature: 0        # low temp = reliable tool calls (default 0.2 if omitted)
-  timeout: 15
-  num_ctx: 8192         # context window tokens
+  timeout: 120          # per-request LLM timeout in seconds (tool-calling turns
+                        # on a local model are slow — don't set this below ~60)
+  num_ctx: 16384        # context window tokens. 70 tool schemas + system prompt
+                        # + history overflow 8192, and Ollama truncates silently
+                        # from the top (dropping the system prompt first)
   num_predict: 1024     # max tokens per generation (caps runaway output)
   keep_alive: "30m"     # keep the model loaded in VRAM between requests
   reasoning: false      # disable qwen3 thinking blocks for faster replies
@@ -44,10 +49,13 @@ services:
     download_path: "/media/youtube"
     subscriptions_file: "/state/youtube_subs.json"
   audible:
-    # The Audible provider currently uses fixed paths (these are not yet
-    # configurable): auth at /config/audible/auth.json, downloads staged in
-    # /tmp/audible_downloads, sync state at /state/audible_downloaded.json.
-    {}
+    # auth_dir defaults to /state/audible (state volume — survives restarts;
+    # a legacy /config/audible/auth.json is still picked up if present).
+    # Sync state lives at /state/audible_downloaded.json.
+    auth_dir: "/state/audible"
+    download_path: "/media/audiobooks"
+  bandcamp:
+    download_path: "/media/music"
   roms:
     download_path: "/media/roms"
     dat_path: "/media/roms/_dat"
@@ -55,6 +63,15 @@ services:
 scheduler:
   enabled: false
   jobs: []
+
+notifications:
+  # Optional: push scheduler results (health problems, daily report) to a
+  # webhook so they reach a human, not just the container log.
+  # kind: "ntfy"    → POST plain text (ntfy.sh topic URL)
+  # kind: "discord" → POST {"content": ...} (Discord webhook URL)
+  # kind: "generic" → POST {"title": ..., "message": ...} JSON
+  url: ""
+  kind: "ntfy"
 
 library:
   media_root: "/media"

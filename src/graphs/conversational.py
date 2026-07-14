@@ -8,35 +8,54 @@ invoking the compiled graph directly. These helpers:
 - cap the ReAct loop with a recursion limit and turn overruns into a friendly
   message instead of a traceback;
 - trim long conversation histories so persistent threads (dashboard, CLI)
-  never overflow the model's context window;
+  never overflow the model's context window, and periodically compact the
+  stored checkpoint so memory use stays bounded;
 - drive the circuit breaker in :class:`src.llm.client.MediaLLM`: when Ollama
   has failed repeatedly, requests skip straight to the hosted fallback until
   the breaker half-opens, instead of waiting out connection timeouts.
-"""
-import logging
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+Conversation memory persists across restarts in ``/state/agent_memory.db``
+(AsyncSqliteSaver) when the state volume is available; otherwise it degrades
+to the in-process MemorySaver.
+"""
+import asyncio
+import logging
+import os
+from datetime import datetime
+from pathlib import Path
+
+from langchain_core.callbacks import AsyncCallbackHandler
+from langchain_core.messages import (
+    AIMessage, HumanMessage, RemoveMessage, SystemMessage,
+)
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
+from src.audit import ToolAuditHandler
 from src.llm.client import MediaLLM, create_llm
 from src.tools.registry import all_tools
 
 logger = logging.getLogger(__name__)
-
-# In-process checkpointer — accumulates conversation state across messages
-# for the same thread_id. Each dashboard session uses "dashboard" as the
-# thread_id, so follow-up messages like "add the first one" have context.
-_checkpointer = MemorySaver()
 
 # Each ReAct step (LLM call or tool batch) counts against this. 16 allows
 # ~7 tool rounds — plenty for real queries, small enough to stop loops fast.
 RECURSION_LIMIT = 16
 
 # Keep at most this many messages of history per thread when calling the
-# model. Persistent threads otherwise grow without bound and blow past
-# num_ctx, silently truncating the system prompt.
-MAX_HISTORY_MESSAGES = 40
+# model. 70 tool schemas + the system prompt already consume a large slice
+# of num_ctx; a fatter window makes Ollama silently truncate from the top —
+# dropping the system prompt and tool definitions first.
+MAX_HISTORY_MESSAGES = 20
+
+# Stored checkpoints grow forever on persistent threads (dashboard, CLI).
+# Once a thread exceeds COMPACT_THRESHOLD stored messages, rewrite it down
+# to the most recent COMPACT_KEEP.
+COMPACT_THRESHOLD = 120
+COMPACT_KEEP = 40
+
+# Tag on the local model's runs so the error tracker can tell local failures
+# from hosted-fallback failures.
+_LOCAL_LLM_TAG = "local-llm"
 
 SYSTEM_PROMPT = """You are a personal media assistant — a friendly, conversational \
 companion who helps manage a home media library.
@@ -100,6 +119,10 @@ a ROM set (they can be tens of GB — mention the size), before syncing a whole 
 Bandcamp collection, and before renaming files (fix naming). For renames, \
 check naming first, show what would change, and mention that an undo log is \
 written so it can be reverted.
+The bulk tools enforce this themselves: rom_download, \
+bandcamp_download_collection, audible_download_new, and library_fix_naming \
+only preview until called with confirm=true. Set confirm=true ONLY after the \
+user has explicitly said yes to that exact operation.
 
 ID MATCHING:
 - Search results show [tmdbId: N] for movies and [tvdbId: N] for TV shows.
@@ -135,8 +158,29 @@ def _trim_history(messages: list, max_messages: int = MAX_HISTORY_MESSAGES) -> l
 
 
 def _build_prompt(state: dict) -> list:
-    """Prompt hook for create_react_agent: system prompt + trimmed history."""
-    return [SystemMessage(content=SYSTEM_PROMPT)] + _trim_history(state["messages"])
+    """Prompt hook for create_react_agent: system prompt + trimmed history.
+
+    The current date is appended so calendar-flavored questions ("what's on
+    next Tuesday?") aren't answered by a model that doesn't know today."""
+    date_line = f"\n\nToday is {datetime.now().strftime('%A, %B %d, %Y')}."
+    return [SystemMessage(content=SYSTEM_PROMPT + date_line)] + _trim_history(state["messages"])
+
+
+class _LLMErrorTracker(AsyncCallbackHandler):
+    """Counts local-model errors during one run.
+
+    ``with_fallbacks()`` can silently serve a turn on the hosted model after
+    the local one failed. Without this hook the run looks successful and the
+    breaker records a success for a dead Ollama — so every later turn keeps
+    paying the local timeout before falling back.
+    """
+
+    def __init__(self):
+        self.local_errors = 0
+
+    async def on_llm_error(self, error, *, tags=None, **kwargs):
+        if tags and _LOCAL_LLM_TAG in tags:
+            self.local_errors += 1
 
 
 class AgentRuntime:
@@ -150,13 +194,16 @@ class AgentRuntime:
       breaker is OPEN so requests don't wait out a dead Ollama's timeouts.
     """
 
-    def __init__(self):
+    def __init__(self, checkpointer):
+        self.checkpointer = checkpointer
         self.llm: MediaLLM = create_llm()
 
         # Always bind tools explicitly — create_react_agent's auto-bind can
         # silently fail with some LangChain/Ollama versions, causing the model
         # to emit tool calls as JSON text instead of tool_call messages.
-        local_bound = self.llm.local_llm.bind_tools(all_tools)
+        # The tag lets _LLMErrorTracker attribute errors to the local model.
+        local_bound = self.llm.local_llm.bind_tools(all_tools).with_config(
+            tags=[_LOCAL_LLM_TAG])
         fallback_bound = None
         if self.llm.fallback_llm is not None:
             fallback_bound = self.llm.fallback_llm.bind_tools(all_tools)
@@ -169,7 +216,7 @@ class AgentRuntime:
             local_bound,
             tools=all_tools,
             prompt=_build_prompt,
-            checkpointer=_checkpointer,
+            checkpointer=checkpointer,
         )
         self.fallback_agent = None
         if fallback_bound is not None:
@@ -177,7 +224,7 @@ class AgentRuntime:
                 fallback_bound,
                 tools=all_tools,
                 prompt=_build_prompt,
-                checkpointer=_checkpointer,
+                checkpointer=checkpointer,
             )
 
     async def pick_agent(self):
@@ -190,26 +237,53 @@ class AgentRuntime:
         return self.local_agent, False
 
 
+async def _make_checkpointer():
+    """SQLite persistence on the state volume; in-memory when unavailable."""
+    state_dir = Path(os.environ.get("MEDIA_AGENT_STATE_DIR", "/state"))
+    try:
+        if state_dir.is_dir() and os.access(state_dir, os.W_OK):
+            import aiosqlite
+            from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+            db_path = state_dir / "agent_memory.db"
+            conn = await aiosqlite.connect(db_path)
+            saver = AsyncSqliteSaver(conn)
+            await saver.setup()
+            logger.info("conversation memory persisted at %s", db_path)
+            return saver
+    except Exception:
+        logger.warning(
+            "sqlite checkpointer unavailable — conversation memory will not "
+            "survive restarts", exc_info=True)
+    return MemorySaver()
+
+
 _runtime: AgentRuntime | None = None
+_runtime_lock = asyncio.Lock()
 
 
-def get_runtime() -> AgentRuntime:
+async def get_runtime() -> AgentRuntime:
     global _runtime
     if _runtime is None:
-        _runtime = AgentRuntime()
+        async with _runtime_lock:
+            if _runtime is None:
+                _runtime = AgentRuntime(await _make_checkpointer())
     return _runtime
 
 
-def create_agent():
-    """Backwards-compatible accessor: the local-primary compiled agent."""
-    return get_runtime().local_agent
+_audit_handler = ToolAuditHandler()
 
 
-def _thread_config(thread_id: str) -> dict:
-    return {
+def _thread_config(thread_id: str, tracker: _LLMErrorTracker | None = None) -> dict:
+    config = {
         "configurable": {"thread_id": thread_id},
         "recursion_limit": RECURSION_LIMIT,
     }
+    callbacks = [_audit_handler]
+    if tracker is not None:
+        callbacks.append(tracker)
+    config["callbacks"] = callbacks
+    return config
 
 
 def _extract_text(content) -> str:
@@ -235,6 +309,10 @@ _FAILURE_MSG = (
     "❌ I couldn't reach the language model right now. "
     "Check that Ollama is running, then try again."
 )
+_TRUNCATED_MSG = (
+    "\n\n⚠️ The connection to the model dropped mid-reply — the answer "
+    "above may be incomplete."
+)
 
 
 def _is_recursion_error(exc: Exception) -> bool:
@@ -245,6 +323,19 @@ def _is_recursion_error(exc: Exception) -> bool:
         return "recursion" in type(exc).__name__.lower()
 
 
+async def _record_outcome(runtime: AgentRuntime, tracker: _LLMErrorTracker) -> None:
+    """Update the breaker after a run that produced a reply.
+
+    A reply that needed the per-call fallback still means the local model is
+    failing — count it, so the breaker opens and later requests skip the
+    local timeout entirely.
+    """
+    if tracker.local_errors:
+        await runtime.llm.record_failure()
+    else:
+        await runtime.llm.record_success()
+
+
 async def run_agent(message: str, thread_id: str, *, messages: list | None = None) -> str:
     """Run one conversational turn and return the reply text.
 
@@ -252,16 +343,19 @@ async def run_agent(message: str, thread_id: str, *, messages: list | None = Non
     ``message`` to seed a whole history (stateless OpenAI-API requests).
     Never raises — failures come back as friendly ❌/⚠️ strings.
     """
-    runtime = get_runtime()
+    runtime = await get_runtime()
     agent, using_fallback = await runtime.pick_agent()
     payload = {"messages": messages or [{"role": "user", "content": message}]}
-    config = _thread_config(thread_id)
+    tracker = _LLMErrorTracker()
+    config = _thread_config(thread_id, tracker)
 
     try:
         result = await agent.ainvoke(payload, config)
         if not using_fallback:
-            await runtime.llm.record_success()
-        return _extract_text(result["messages"][-1].content) or "Done — but I have nothing to report."
+            await _record_outcome(runtime, tracker)
+        reply = _extract_text(result["messages"][-1].content) or "Done — but I have nothing to report."
+        await _compact_thread(thread_id)
+        return reply
     except Exception as exc:
         if _is_recursion_error(exc):
             return _RECURSION_MSG
@@ -278,29 +372,39 @@ async def run_agent(message: str, thread_id: str, *, messages: list | None = Non
         return _FAILURE_MSG
 
 
+async def _stream_text(agent, payload: dict, config: dict):
+    """Yield text chunks from one graph run."""
+    async for event in agent.astream_events(payload, version="v2", config=config):
+        if event["event"] == "on_chat_model_stream":
+            chunk = event["data"].get("chunk")
+            if chunk is not None:
+                text = _extract_text(getattr(chunk, "content", ""))
+                if text:
+                    yield text
+
+
 async def stream_agent(message: str, thread_id: str, *, messages: list | None = None):
     """Yield reply text chunks for one conversational turn.
 
     Same semantics as :func:`run_agent`, as an async generator for SSE
-    endpoints. Yields friendly error text instead of raising.
+    endpoints. Yields friendly error text instead of raising; retries once
+    on the hosted model when nothing has been streamed yet.
     """
-    runtime = get_runtime()
+    runtime = await get_runtime()
     agent, using_fallback = await runtime.pick_agent()
     payload = {"messages": messages or [{"role": "user", "content": message}]}
-    config = _thread_config(thread_id)
+    tracker = _LLMErrorTracker()
+    config = _thread_config(thread_id, tracker)
 
     streamed_any = False
     try:
-        async for event in agent.astream_events(payload, version="v2", config=config):
-            if event["event"] == "on_chat_model_stream":
-                chunk = event["data"].get("chunk")
-                if chunk is not None:
-                    text = _extract_text(getattr(chunk, "content", ""))
-                    if text:
-                        streamed_any = True
-                        yield text
+        async for text in _stream_text(agent, payload, config):
+            streamed_any = True
+            yield text
         if not using_fallback:
-            await runtime.llm.record_success()
+            await _record_outcome(runtime, tracker)
+        await _compact_thread(thread_id)
+        return
     except Exception as exc:
         if _is_recursion_error(exc):
             yield _RECURSION_MSG
@@ -308,8 +412,20 @@ async def stream_agent(message: str, thread_id: str, *, messages: list | None = 
         logger.exception("agent stream failed (fallback=%s)", using_fallback)
         if not using_fallback:
             await runtime.llm.record_failure()
-        if not streamed_any:
-            yield _FAILURE_MSG
+
+    # Mirror run_agent's retry: if nothing reached the client yet, replay the
+    # turn on the hosted model instead of surfacing a failure.
+    if not streamed_any and not using_fallback and runtime.fallback_agent is not None:
+        try:
+            async for text in _stream_text(runtime.fallback_agent, payload, config):
+                streamed_any = True
+                yield text
+            return
+        except Exception:
+            logger.exception("fallback stream retry also failed")
+
+    # A partially-streamed reply must not end silently truncated.
+    yield _TRUNCATED_MSG if streamed_any else _FAILURE_MSG
 
 
 async def record_exchange(thread_id: str, user_message: str, assistant_message: str) -> None:
@@ -321,7 +437,7 @@ async def record_exchange(thread_id: str, user_message: str, assistant_message: 
     failures are logged, never raised.
     """
     try:
-        runtime = get_runtime()
+        runtime = await get_runtime()
         await runtime.local_agent.aupdate_state(
             {"configurable": {"thread_id": thread_id}},
             {"messages": [
@@ -330,17 +446,67 @@ async def record_exchange(thread_id: str, user_message: str, assistant_message: 
             ]},
             as_node="agent",
         )
+        await _compact_thread(thread_id)
     except Exception:
         logger.debug("could not record router exchange for %s", thread_id, exc_info=True)
 
 
-def forget_thread(thread_id: str) -> None:
-    """Drop a thread's checkpoints (used by stateless API requests).
+async def _compact_thread(thread_id: str) -> None:
+    """Bound a thread's stored history.
 
-    MemorySaver keeps every thread forever; per-request threads would leak.
-    Best-effort — older langgraph checkpoint versions lack delete_thread.
+    ``_trim_history`` only trims what is *sent to the model*; the checkpoint
+    itself accumulates every message forever. Once it passes the threshold,
+    drop everything but the recent tail (aligned to a HumanMessage so no
+    tool-call pair is orphaned). Best-effort.
     """
     try:
-        _checkpointer.delete_thread(thread_id)
+        runtime = await get_runtime()
+        config = {"configurable": {"thread_id": thread_id}}
+        state = await runtime.local_agent.aget_state(config)
+        msgs = (state.values or {}).get("messages", []) if state else []
+        if len(msgs) <= COMPACT_THRESHOLD:
+            return
+        keep = _trim_history(msgs, COMPACT_KEEP)
+        drop = msgs[:len(msgs) - len(keep)]
+        removals = [RemoveMessage(id=m.id) for m in drop if getattr(m, "id", None)]
+        if removals:
+            await runtime.local_agent.aupdate_state(
+                config, {"messages": removals}, as_node="agent")
+            logger.info("compacted thread %s: dropped %d stored messages",
+                        thread_id, len(removals))
+    except Exception:
+        logger.debug("compaction failed for %s", thread_id, exc_info=True)
+
+
+async def aclose_runtime() -> None:
+    """Close the checkpointer's DB connection (server shutdown hook)."""
+    if _runtime is None:
+        return
+    conn = getattr(_runtime.checkpointer, "conn", None)
+    if conn is not None:
+        try:
+            await conn.close()
+        except Exception:
+            pass
+
+
+async def forget_thread(thread_id: str) -> None:
+    """Drop a thread's checkpoints (used by stateless API requests).
+
+    Checkpointers keep every thread forever; per-request threads would leak.
+    Best-effort — older checkpoint backends lack (a)delete_thread.
+    """
+    if _runtime is None:
+        return
+    saver = _runtime.checkpointer
+    try:
+        await saver.adelete_thread(thread_id)
+        return
+    except (AttributeError, NotImplementedError):
+        pass
+    except Exception:
+        return
+    try:
+        saver.delete_thread(thread_id)
     except Exception:
         pass
