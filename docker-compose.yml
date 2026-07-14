@@ -12,6 +12,19 @@ services:
     volumes:
       - ./config:/app/config
       - agent-state:/state
+      # Media library root. Downloads (music, audiobooks, ROMs, YouTube) land
+      # under here — point MEDIA_ROOT at the real library (e.g. an NFS mount
+      # of the NAS). Defaults to ./media so downloads survive restarts even
+      # before the NAS mount is configured.
+      - ${MEDIA_ROOT:-./media}:/media
+    # Keep a runaway download or hashing job from starving the GPU box.
+    mem_limit: 3g
+    cpus: 2.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - agent-mesh
       - default

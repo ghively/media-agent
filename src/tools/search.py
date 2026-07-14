@@ -71,6 +71,11 @@ async def _search_sonarr(query: str, limit: int) -> list[dict]:
             "id": r.get("tvdbId"),
             "overview": r.get("overview", "")[:200] if r.get("overview") else "",
             "relevance": _score_relevance(r.get("title", ""), query),
+            # Kept for the request/approval loop's auto-approve rules
+            # ("anything under 3 seasons", "genre anime").
+            "genres": r.get("genres") or [],
+            "season_count": len([s for s in (r.get("seasons") or [])
+                                 if s.get("seasonNumber", 0) > 0]) or None,
         })
     return items
 
@@ -101,6 +106,7 @@ async def _search_radarr(query: str, limit: int) -> list[dict]:
             "id": r.get("tmdbId"),
             "overview": r.get("overview", "")[:200] if r.get("overview") else "",
             "relevance": _score_relevance(r.get("title", ""), query),
+            "genres": r.get("genres") or [],
         })
     return items
 

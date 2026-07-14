@@ -82,15 +82,17 @@ building:
    `agent-mesh` entries from the `networks:` blocks in `docker-compose.yml`
    and reach Ollama by host IP instead.
 
-2. **Mount your media library.** Compose mounts only `./config` and the
-   `/state` volume. The YouTube/Audible/ROM download paths and the library
-   scanner default to `/media/...` — without a bind mount those writes land
-   inside the container and vanish on rebuild. Add one under `volumes:`:
-   ```yaml
-       - /path/to/your/media:/media
+2. **Point MEDIA_ROOT at your media library.** Compose mounts
+   `${MEDIA_ROOT:-./media}` at `/media`, where every download provider
+   (music, audiobooks, ROMs, YouTube) and the library scanner write. Set it
+   in `.env` to the real library (e.g. an NFS mount of the NAS):
+   ```bash
+   MEDIA_ROOT=/mnt/nas/media
    ```
-   (Skip this if you only use the API-backed tools — Sonarr, Radarr, Emby,
-   SABnzbd, Download Station — which run on their own hosts.)
+   Left unset, downloads land in `./media` next to the compose file — still
+   persistent, just not on the NAS. Audible auth lives on the `/state`
+   volume (`services.audible.auth_dir`, default `/state/audible`) and
+   survives restarts either way.
 
 ### 4. Build and Start
 
@@ -113,7 +115,7 @@ curl http://localhost:8088/health
 
 # Tool count
 docker exec media-agent python -c "from src.tools.registry import all_tools; print(f'{len(all_tools)} tools')"
-# → 70 tools
+# → 102 tools
 
 # Dashboard
 # Open http://localhost:8088/dashboard in a browser
@@ -179,6 +181,17 @@ docker compose build --no-cache && docker compose up -d
 | `services.sabnzbd` | `url`, `api_key` | SABnzbd API |
 | `scheduler` | `enabled`, `jobs` | APScheduler config (currently auto-started) |
 | `library` | `media_root`, `naming_conventions` | Library management paths and rules |
+| `services.bandcamp` | `download_path` | Bandcamp download root (default `/media/music`) |
+| `services.audible` | `auth_dir`, `download_path` | Audible auth (default `/state/audible`) and download root (default `/media/audiobooks`) |
+| `notifications` | `url`, `kind`, `chat_id` | Optional push for scheduler findings (`ntfy`, `discord`, `generic`, or `telegram`) |
+| `services.podcasts` | `download_path` | Podcast episode downloads (default `/media/podcasts`) |
+| `services.twitch` | `download_path` | Twitch recordings (default `/media/twitch`) |
+| `services.komga` | `url`, `api_key` | Komga comic server (optional) |
+| `services.calibre` | `url`, `username`, `password` | Calibre content server (optional) |
+| `services.lidarr` | `url`, `api_key`, `quality_profile_id`, `metadata_profile_id`, `root_folder_path` | Lidarr music management (optional) |
+| `services.prowlarr` | `url`, `api_key` | Prowlarr unified indexer search (optional) |
+| `services.qbittorrent` | `url`, `username`, `password` | qBittorrent (optional; preferred over Download Station for magnets when set) |
+| `telegram` | `bot_token`, `allowed_chat_ids` | Telegram chat interface (optional; refuses chats not in the allowlist) |
 
 ### Environment Variables
 
@@ -193,6 +206,10 @@ docker compose build --no-cache && docker compose up -d
 | `HOSTED_LLM_KEY` | No | — | Fallback LLM API key |
 | `HOSTED_LLM_MODEL` | No | — | Fallback LLM model name |
 | `MEDIA_AGENT_CONFIG` | No | `config/settings.yaml` | Custom config path |
+| `MEDIA_ROOT` | Recommended | `./media` | Host path mounted at `/media` (docker-compose) — point at the real media library |
+| `TELEGRAM_BOT_TOKEN` | No | — | Telegram bot token (from @BotFather) |
+| `LIDARR_API_KEY` / `PROWLARR_API_KEY` / `KOMGA_API_KEY` | No | — | Optional service integrations |
+| `QBIT_USERNAME` / `QBIT_PASSWORD` / `CALIBRE_PASSWORD` | No | — | Optional service credentials |
 
 ---
 

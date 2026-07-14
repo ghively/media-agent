@@ -1,8 +1,31 @@
-"""SABnzbd API client + LangGraph tool definitions."""
+"""SABnzbd API client + LangGraph tool definitions.
+
+SABnzbd only accepts its API key as a query-string parameter, which means
+any httpx error message embeds the full request URL — key included. Those
+messages flow straight into tool return strings (LLM context, chat replies,
+logs), so the client raises a clean ``SabnzbdError`` with the status code
+only, and ``_scrub`` strips the key from anything else.
+"""
 import httpx
 from langchain_core.tools import tool
 
 from src.config import get_settings
+
+
+class SabnzbdError(RuntimeError):
+    """SABnzbd request failure with a URL-free, key-free message."""
+
+
+def _scrub(text: str) -> str:
+    """Remove the configured API key from an arbitrary error string.
+
+    Keys shorter than 8 chars are not scrubbed — replacing a trivial
+    substring would mangle unrelated text (real SABnzbd keys are 32 hex)."""
+    try:
+        key = get_settings().sabnzbd.get("api_key", "")
+    except Exception:
+        key = ""
+    return text.replace(key, "***") if key and len(key) >= 8 else text
 
 
 class SabnzbdClient:
@@ -12,6 +35,14 @@ class SabnzbdClient:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
+
+    @staticmethod
+    def _checked_json(resp: httpx.Response) -> dict:
+        if resp.status_code >= 400:
+            # Never raise_for_status(): its message embeds the full URL,
+            # apikey query parameter included.
+            raise SabnzbdError(f"SABnzbd returned HTTP {resp.status_code}")
+        return resp.json()
 
     async def _call(self, mode: str, **kwargs) -> dict:
         """Make a GET request to the SABnzbd API.
@@ -28,8 +59,7 @@ class SabnzbdClient:
             resp = await client.get(
                 f"{self.base_url}/api", params=params
             )
-            resp.raise_for_status()
-            return resp.json()
+            return self._checked_json(resp)
 
     async def _post(self, mode: str, **kwargs) -> dict:
         """Make a POST request to the SABnzbd API."""
@@ -43,8 +73,7 @@ class SabnzbdClient:
             resp = await client.post(
                 f"{self.base_url}/api", params=params
             )
-            resp.raise_for_status()
-            return resp.json()
+            return self._checked_json(resp)
 
 
 def _client() -> SabnzbdClient:
@@ -144,7 +173,7 @@ async def sabnzbd_queue() -> str:
     except httpx.TimeoutException:
         return "❌ SABnzbd request timed out."
     except Exception as e:
-        return f"❌ SABnzbd queue failed: {type(e).__name__}: {e}"
+        return _scrub(f"❌ SABnzbd queue failed: {type(e).__name__}: {e}")
 
 
 @tool
@@ -194,7 +223,7 @@ async def sabnzbd_history(limit: int = 20) -> str:
     except httpx.TimeoutException:
         return "❌ SABnzbd request timed out."
     except Exception as e:
-        return f"❌ SABnzbd history failed: {type(e).__name__}: {e}"
+        return _scrub(f"❌ SABnzbd history failed: {type(e).__name__}: {e}")
 
 
 @tool
@@ -266,7 +295,7 @@ async def sabnzbd_status() -> str:
     except httpx.TimeoutException:
         return "❌ SABnzbd request timed out."
     except Exception as e:
-        return f"❌ SABnzbd status failed: {type(e).__name__}: {e}"
+        return _scrub(f"❌ SABnzbd status failed: {type(e).__name__}: {e}")
 
 
 @tool
@@ -280,7 +309,7 @@ async def sabnzbd_pause() -> str:
     except httpx.ConnectError:
         return "❌ Cannot connect to SABnzbd."
     except Exception as e:
-        return f"❌ Failed to pause SABnzbd: {type(e).__name__}: {e}"
+        return _scrub(f"❌ Failed to pause SABnzbd: {type(e).__name__}: {e}")
 
 
 @tool
@@ -294,7 +323,7 @@ async def sabnzbd_resume() -> str:
     except httpx.ConnectError:
         return "❌ Cannot connect to SABnzbd."
     except Exception as e:
-        return f"❌ Failed to resume SABnzbd: {type(e).__name__}: {e}"
+        return _scrub(f"❌ Failed to resume SABnzbd: {type(e).__name__}: {e}")
 
 
 @tool
@@ -317,4 +346,4 @@ async def sabnzbd_add_nzb(nzb_url: str, category: str = "movies") -> str:
     except httpx.ConnectError:
         return "❌ Cannot connect to SABnzbd."
     except Exception as e:
-        return f"❌ Failed to add NZB: {type(e).__name__}: {e}"
+        return _scrub(f"❌ Failed to add NZB: {type(e).__name__}: {e}")

@@ -29,6 +29,21 @@ class SonarrClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def _put(self, endpoint: str, json_data: dict):
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.put(
+                f"{self.base_url}/api/v3{endpoint}", headers=self.headers, json=json_data
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    async def _delete(self, endpoint: str, params: dict | None = None):
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.delete(
+                f"{self.base_url}/api/v3{endpoint}", headers=self.headers, params=params
+            )
+            resp.raise_for_status()
+
 
 def _client() -> SonarrClient:
     s = get_settings().sonarr
@@ -58,21 +73,45 @@ async def search_tv(query: str) -> str:
 
 
 @tool
-async def add_tv_show(tvdb_id: int, title: str) -> str:
-    """Add a TV show to the monitored library by its TVDB ID."""
+async def add_tv_show(tvdb_id: int, title: str, season: int = 0,
+                      quality_profile_id: int = 0, root_folder: str = "") -> str:
+    """Add a TV show to the monitored library by its TVDB ID.
+    Pass season=N to monitor and download ONLY that season (season-level
+    requests); season=0 (default) monitors the whole series. Optional
+    quality_profile_id / root_folder override the configured defaults."""
     try:
         settings = get_settings().sonarr
         body = {
             "tvdbId": tvdb_id,
             "title": title,
-            "qualityProfileId": settings.get("quality_profile_id", 4),
-            "rootFolderPath": settings.get("root_folder_path", "/your/media/tv"),
+            "qualityProfileId": quality_profile_id or settings.get("quality_profile_id", 4),
+            "rootFolderPath": root_folder or settings.get("root_folder_path", "/your/media/tv"),
             "monitored": True,
             "addOptions": {"searchForMissingEpisodes": True},
             "seriesType": "standard",
         }
+        scope = ""
+        if season > 0:
+            # Season-scoped add: Sonarr monitors exactly the seasons flagged
+            # here, and searchForMissingEpisodes only searches monitored ones.
+            # The season list comes from lookup; if it can't be fetched the
+            # add proceeds whole-series rather than failing the request.
+            try:
+                results = await _client()._get(
+                    "/series/lookup", params={"term": f"tvdb:{tvdb_id}"})
+                seasons = (results[0].get("seasons") or []) if results else []
+                if seasons:
+                    # No addOptions.monitor key: when it's absent Sonarr
+                    # respects these per-season flags (Overseerr does the same).
+                    body["seasons"] = [
+                        {"seasonNumber": s.get("seasonNumber"),
+                         "monitored": s.get("seasonNumber") == season}
+                        for s in seasons]
+                    scope = f" (season {season} only)"
+            except Exception:
+                pass
         await _client()._post("/series", body)
-        return f"✅ Added '{title}' (tvdbId: {tvdb_id}) to Sonarr. Episode search started — Emby will update automatically when episodes import."
+        return f"✅ Added '{title}'{scope} (tvdbId: {tvdb_id}) to Sonarr. Episode search started — Emby will update automatically when episodes import."
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 400:
             return f"❌ '{title}' may already be in your library, or the tvdbId is invalid."
@@ -84,18 +123,29 @@ async def add_tv_show(tvdb_id: int, title: str) -> str:
 
 
 @tool
-async def list_tv_shows() -> str:
-    """List all monitored TV shows."""
+async def list_tv_shows(page: int = 1) -> str:
+    """List monitored TV shows, 30 per page alphabetically.
+    Pass page=2, page=3, ... to continue through a large library."""
     try:
         series = await _client()._get("/series")
         if not series:
             return "No TV shows are currently monitored."
-        lines = [f"Monitoring {len(series)} show(s):\n"]
-        for s in sorted(series, key=lambda x: x.get("title", "")):
+        # Paged: an unbounded dump of a big library can overflow the local
+        # model's context window mid-conversation.
+        page = max(1, page)
+        ordered = sorted(series, key=lambda x: x.get("title", ""))
+        shown = ordered[(page - 1) * 30:page * 30]
+        if not shown:
+            return f"No shows on page {page} — the library has {len(series)} show(s)."
+        lines = [f"Monitoring {len(series)} show(s) (page {page}):\n"]
+        for s in shown:
             stats = s.get("statistics", {})
             seasons = stats.get("seasonCount", 0)
             episodes = stats.get("episodeFileCount", 0)
             lines.append(f"  • {s['title']} — {seasons} seasons, {episodes} episodes")
+        remaining = len(ordered) - page * 30
+        if remaining > 0:
+            lines.append(f"\n  ... {remaining} more — ask for page {page + 1}")
         return "\n".join(lines)
     except httpx.ConnectError:
         return "❌ Cannot connect to Sonarr."
@@ -105,7 +155,8 @@ async def list_tv_shows() -> str:
 
 @tool
 async def get_tv_queue() -> str:
-    """Check current Sonarr download queue."""
+    """Check ONLY Sonarr's TV download queue. For a combined view across
+    all services, use check_queue_status instead."""
     try:
         result = await _client()._get("/queue")
         records = result.get("records", []) if isinstance(result, dict) else result
@@ -248,7 +299,8 @@ async def sonarr_list_root_folders() -> str:
 
 @tool
 async def refresh_tv_show(series_id: int) -> str:
-    """Refresh a TV show's metadata and disk scan."""
+    """Refresh ONE show's metadata in Sonarr by its Sonarr series ID.
+    For making new downloads appear in Emby, use emby_scan instead."""
     try:
         result = await _client()._post("/command", {"name": "RefreshSeries", "seriesId": series_id})
         return f"✅ Refresh triggered for series ID {series_id}."

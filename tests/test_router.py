@@ -145,8 +145,6 @@ def test_extract_platform(raw, platform, remainder):
     # Audible
     ("list my audiobooks", "src.providers.audible.audible_list_library"),
     ("audible library", "src.providers.audible.audible_list_library"),
-    ("download my new audiobooks", "src.providers.audible.audible_download_new"),
-    ("sync audible", "src.providers.audible.audible_download_new"),
     ("check audible auth", "src.providers.audible.audible_check_auth"),
     ("is audible logged in?", "src.providers.audible.audible_check_auth"),
     ("set up audible", "src.providers.audible.audible_setup_auth"),
@@ -419,7 +417,9 @@ async def test_rom_download_flow(monkeypatch):
 
     confirm = await try_route("yes", "r1")
     assert confirm == "✅ ROM set downloaded"
-    assert rom_dl.calls == [{"identifier": "no-intro_snes", "platform": "snes"}]
+    # Picking from numbered results IS the confirmation → confirm=True.
+    assert rom_dl.calls == [
+        {"identifier": "no-intro_snes", "platform": "snes", "confirm": True}]
     assert "r1" not in router._pending
 
 
@@ -574,7 +574,28 @@ async def test_fix_naming_requires_confirmation(monkeypatch):
     assert not fix.calls
     confirm = await try_route("go ahead", "l1")
     assert confirm == "✅ renamed 12 files"
-    assert fix.calls == [{"path": "/media/tv", "convention": "tv"}]
+    assert fix.calls == [{"path": "/media/tv", "convention": "tv", "confirm": True}]
+
+
+@pytest.mark.asyncio
+async def test_audible_sync_requires_confirmation(monkeypatch):
+    sync = _patch_tool(monkeypatch, "src.providers.audible.audible_download_new", "✅ synced")
+    reply = await try_route("sync audible", "au1")
+    assert "yes/no" in reply
+    assert not sync.calls
+    confirm = await try_route("yes", "au1")
+    assert confirm == "✅ synced"
+    assert sync.calls == [{"confirm": True}]
+
+
+@pytest.mark.asyncio
+async def test_bandcamp_collection_passes_confirm(monkeypatch):
+    coll = _patch_tool(
+        monkeypatch, "src.providers.bandcamp.bandcamp_download_collection", "✅ collection")
+    await try_route("sync bandcamp", "bc9")
+    confirm = await try_route("yes", "bc9")
+    assert confirm == "✅ collection"
+    assert coll.calls == [{"confirm": True}]
 
 
 @pytest.mark.asyncio

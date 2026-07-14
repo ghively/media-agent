@@ -93,6 +93,91 @@ try:
 except ImportError:
     _library_tools = []
 
+# Podcasts (RSS — pure httpx, no external CLI)
+try:
+    from src.providers.podcast import (
+        podcast_subscribe, podcast_unsubscribe,
+        podcast_list_subscriptions, podcast_check_new,
+    )
+    _podcast_tools = [
+        podcast_subscribe, podcast_unsubscribe,
+        podcast_list_subscriptions, podcast_check_new,
+    ]
+except ImportError:
+    _podcast_tools = []
+
+# Twitch (streamlink subprocess)
+try:
+    from src.providers.twitch import (
+        twitch_check_live, twitch_record, twitch_recordings,
+    )
+    _twitch_tools = [twitch_check_live, twitch_record, twitch_recordings]
+except ImportError:
+    _twitch_tools = []
+
+# Comics (Komga API)
+try:
+    from src.tools.komga import komga_search, komga_recent, komga_scan
+    _komga_tools = [komga_search, komga_recent, komga_scan]
+except ImportError:
+    _komga_tools = []
+
+# Ebooks (Calibre content server API)
+try:
+    from src.tools.calibre import calibre_search, calibre_recent
+    _calibre_tools = [calibre_search, calibre_recent]
+except ImportError:
+    _calibre_tools = []
+
+# Music management (Lidarr API)
+try:
+    from src.tools.lidarr import (
+        search_artist, add_artist, list_artists, get_music_queue,
+    )
+    _lidarr_tools = [search_artist, add_artist, list_artists, get_music_queue]
+except ImportError:
+    _lidarr_tools = []
+
+# Unified indexer search (Prowlarr API)
+try:
+    from src.tools.prowlarr import prowlarr_search, prowlarr_indexers
+    _prowlarr_tools = [prowlarr_search, prowlarr_indexers]
+except ImportError:
+    _prowlarr_tools = []
+
+# Request/approval loop (seerr pattern)
+try:
+    from src.tools.requests_tools import (
+        list_media_requests, approve_media_request, deny_media_request,
+    )
+    _request_tools = [list_media_requests, approve_media_request,
+                      deny_media_request]
+except ImportError:
+    _request_tools = []
+
+# Library cleanup (Maintainerr pattern: quarantine, retention, rules)
+try:
+    from src.tools.cleanup_tools import (
+        cleanup_status, cleanup_schedule, cleanup_keep, cleanup_run_now,
+        cleanup_set_retention, cleanup_list_rules, cleanup_remove_rule,
+    )
+    _cleanup_tools = [cleanup_status, cleanup_schedule, cleanup_keep,
+                      cleanup_run_now, cleanup_set_retention,
+                      cleanup_list_rules, cleanup_remove_rule]
+except ImportError:
+    _cleanup_tools = []
+
+# Torrents (qBittorrent Web API)
+try:
+    from src.tools.qbittorrent import (
+        qbittorrent_list, qbittorrent_add, qbittorrent_pause, qbittorrent_resume,
+    )
+    _qbittorrent_tools = [
+        qbittorrent_list, qbittorrent_add, qbittorrent_pause, qbittorrent_resume,
+    ]
+except ImportError:
+    _qbittorrent_tools = []
+
 # All tools for the LangGraph agent
 all_tools = (
     # TV / Sonarr
@@ -118,4 +203,7 @@ all_tools = (
      rom_search_archive, rom_download, rom_verify_dat, rom_get_collection,
     ] + _sabnzbd_tools + _search_tools + _download_station_tools + _youtube_tools
     + _library_tools + _rom_library_tools
+    + _podcast_tools + _twitch_tools + _komga_tools + _calibre_tools
+    + _lidarr_tools + _prowlarr_tools + _qbittorrent_tools
+    + _request_tools + _cleanup_tools
 )

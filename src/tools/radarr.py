@@ -28,6 +28,21 @@ class RadarrClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def _put(self, endpoint: str, json_data: dict):
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.put(
+                f"{self.base_url}/api/v3{endpoint}", headers=self.headers, json=json_data
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    async def _delete(self, endpoint: str, params: dict | None = None):
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.delete(
+                f"{self.base_url}/api/v3{endpoint}", headers=self.headers, params=params
+            )
+            resp.raise_for_status()
+
 
 def _client() -> RadarrClient:
     s = get_settings().radarr
@@ -57,15 +72,17 @@ async def search_movie(query: str) -> str:
 
 
 @tool
-async def add_movie(tmdb_id: int, title: str) -> str:
-    """Add a movie to the monitored library by its TMDb ID."""
+async def add_movie(tmdb_id: int, title: str,
+                    quality_profile_id: int = 0, root_folder: str = "") -> str:
+    """Add a movie to the monitored library by its TMDb ID. Optional
+    quality_profile_id / root_folder override the configured defaults."""
     try:
         settings = get_settings().radarr
         body = {
             "tmdbId": tmdb_id,
             "title": title,
-            "qualityProfileId": settings.get("quality_profile_id", 4),
-            "rootFolderPath": settings.get("root_folder_path", "/your/media/movies"),
+            "qualityProfileId": quality_profile_id or settings.get("quality_profile_id", 4),
+            "rootFolderPath": root_folder or settings.get("root_folder_path", "/your/media/movies"),
             "monitored": True,
             "addOptions": {"searchForMovie": True},
         }
@@ -82,20 +99,27 @@ async def add_movie(tmdb_id: int, title: str) -> str:
 
 
 @tool
-async def list_movies() -> str:
-    """List all monitored movies."""
+async def list_movies(page: int = 1) -> str:
+    """List monitored movies, 30 per page alphabetically.
+    Pass page=2, page=3, ... to continue through a large library."""
     try:
         movies = await _client()._get("/movie")
         if not movies:
             return "No movies are currently monitored."
-        lines = [f"Monitoring {len(movies)} movie(s):\n"]
-        for m in sorted(movies, key=lambda x: x.get("title", ""))[:30]:
+        page = max(1, page)
+        ordered = sorted(movies, key=lambda x: x.get("title", ""))
+        shown = ordered[(page - 1) * 30:page * 30]
+        if not shown:
+            return f"No movies on page {page} — the library has {len(movies)} movie(s)."
+        lines = [f"Monitoring {len(movies)} movie(s) (page {page}):\n"]
+        for m in shown:
             title = m.get("title", "Unknown")
             year = m.get("year", "")
             has_file = "✓" if m.get("hasFile") else "✗"
             lines.append(f"  • {title} ({year}) [{has_file}]")
-        if len(movies) > 30:
-            lines.append(f"\n  ... and {len(movies) - 30} more")
+        remaining = len(ordered) - page * 30
+        if remaining > 0:
+            lines.append(f"\n  ... {remaining} more — ask for page {page + 1}")
         return "\n".join(lines)
     except httpx.ConnectError:
         return "❌ Cannot connect to Radarr."
@@ -105,7 +129,8 @@ async def list_movies() -> str:
 
 @tool
 async def get_movie_queue() -> str:
-    """Check current Radarr download queue."""
+    """Check ONLY Radarr's movie download queue. For a combined view across
+    all services, use check_queue_status instead."""
     try:
         result = await _client()._get("/queue")
         records = result.get("records", []) if isinstance(result, dict) else result
@@ -223,7 +248,8 @@ async def radarr_list_root_folders() -> str:
 
 @tool
 async def refresh_movie(movie_id: int) -> str:
-    """Refresh a movie's metadata and disk scan."""
+    """Refresh ONE movie's metadata in Radarr by its Radarr movie ID.
+    For making new downloads appear in Emby, use emby_scan instead."""
     try:
         result = await _client()._post("/command", {"name": "RefreshMovie", "movieId": movie_id})
         return f"✅ Refresh triggered for movie ID {movie_id}."

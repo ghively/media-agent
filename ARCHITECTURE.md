@@ -22,7 +22,7 @@ Media Agent is a single Docker container running on **your-gpu-host** (NVIDIA RT
 │  │                                                              │   │
 │  │  ┌────────────┐  ┌──────────────┐  ┌──────────────────┐     │   │
 │  │  │  FastAPI    │  │  APScheduler │  │  LangGraph ReAct  │     │   │
-│  │  │  Server     │  │  (daemon     │  │  Agent (70 tools) │     │   │
+│  │  │  Server     │  │  (daemon     │  │  Agent (102 tools) │     │   │
 │  │  │  :8088      │  │   thread)    │  │                   │     │   │
 │  │  │             │  │              │  │  ┌─────────────┐ │     │   │
 │  │  │ • /v1/chat  │  │ • health 30m │  │  │   Qwen 3.5   │ │     │   │
@@ -104,8 +104,9 @@ llm:
   hosted_key: ""
   hosted_model: ""
   temperature: 0        # defaults to 0.2 — low temp keeps tool calls reliable
-  timeout: 15
-  num_ctx: 8192         # context window
+  timeout: 120          # per-request LLM timeout (seconds)
+  num_ctx: 16384        # context window — 92 tool schemas + prompt + history
+                        # overflow 8192 and Ollama truncates silently from the top
   num_predict: 1024     # generation cap
   keep_alive: "30m"     # keep model resident in VRAM between requests
   reasoning: false      # disable qwen3 thinking blocks (latency win)
@@ -114,6 +115,10 @@ llm:
 ### 2.3 Deterministic Router (`src/graphs/router.py`) — the fast path
 
 Every user message hits the **deterministic intent router before the LLM**.
+Politeness/filler is stripped first ("hey can you … please" routes like the
+bare command), coverage is tracked (`get_stats()`, surfaced on the dashboard
+as "⚡ N% instant"), and full acquire flows run without any LLM: audiobook
+by title, add-artist, and indexer search→grab (Prowlarr → qBittorrent/DS/SAB).
 ~45 intent groups spanning every tool domain — TV/movies, health/disk/queues,
 Emby, SABnzbd, Download Station, **ROMs & emulation platforms**, **YouTube**,
 **Audible audiobooks**, **Bandcamp**, and **library maintenance** — are
@@ -205,13 +210,17 @@ The agent loops: LLM decides which tools to call → tools execute → results g
 
 **Runtime hardening.** All interfaces call `run_agent()` / `stream_agent()` instead of invoking the compiled graph directly. These helpers:
 
-- always pass a `thread_id` (mandatory with the MemorySaver checkpointer);
+- always pass a `thread_id` (mandatory — the graph has a checkpointer: SQLite
+  at `/state/agent_memory.db` so memory survives restarts, falling back to
+  in-process MemorySaver when the state volume is absent);
 - enforce `RECURSION_LIMIT = 16` on the ReAct loop and map `GraphRecursionError` to a friendly "break it into smaller pieces" message;
-- trim thread history to the last 40 messages (`_trim_history`, aligned to a HumanMessage boundary so tool calls are never orphaned) before every model call, so persistent threads never overflow `num_ctx`;
+- trim thread history to the last 20 messages (`_trim_history`, aligned to a HumanMessage boundary so tool calls are never orphaned) before every model call, and compact stored checkpoints past 120 messages down to 40, so persistent threads never overflow `num_ctx` or RAM;
 - drive the circuit breaker: two graphs are compiled against the same checkpointer — local-primary (with per-call hosted fallback) and hosted-primary — and `pick_agent()` selects one per request from the breaker state, so an OPEN breaker skips a dead Ollama's timeouts entirely;
-- never raise: LLM failures come back as friendly ❌ strings, and each failure/success updates the breaker.
+- never raise: LLM failures come back as friendly ❌ strings, and each failure/success updates the breaker (an `on_llm_error` callback attributes with_fallbacks rescues to the *local* model, so a dead Ollama still opens the breaker);
+- journal every LLM-path tool call to `/state/tool_audit.jsonl` (`src/audit.py`) — name, args, result, duration — so file renames and bulk downloads are traceable after the fact;
+- **scope tools per turn** (`src/graphs/scoping.py`, `llm.tool_scoping`): a deterministic keyword classifier picks the message's domain, and the turn runs on a graph bound to only that domain's ~10 tools instead of all 92 — the main lever that keeps very small models reliable. Ambiguous messages (ties, no signal) use the full toolset.
 
-Stateless OpenAI-API requests use a throwaway per-request thread that is deleted afterwards (`forget_thread`) so MemorySaver doesn't leak.
+Stateless OpenAI-API requests use a throwaway per-request agent thread that is deleted afterwards (`forget_thread`), plus a *stable* router thread keyed on the conversation's first user message so yes/no confirmations survive across requests. The dashboard gives each browser tab its own `dashboard-<session>` thread (reset via `POST /api/dashboard/reset`).
 
 ### 2.5 Tool Layer (`src/tools/` + `src/providers/`)
 
@@ -268,12 +277,19 @@ Providers handle content types that need **more than an API call** — they wrap
 | `bandcamp.py` | 2 | bandcamp-downloader (subprocess) | Direct download |
 | `audible.py` | 5 | audible-cli (subprocess) | Authenticated extraction |
 | `rom.py` | 4 | internetarchive (subprocess) | Direct download + DAT verify |
+| `podcast.py` | 4 | httpx (RSS) | Subscriptions + episode downloads |
+| `twitch.py` | 3 | streamlink (subprocess) | Live checks + background stream recording |
+| `komga.py` | 3 | Komga API | Comic search/recent/scan |
+| `calibre.py` | 2 | Calibre content server | Ebook search/recent |
+| `lidarr.py` | 4 | Lidarr API | Artist search/add/list + music queue |
+| `prowlarr.py` | 2 | Prowlarr API | Unified indexer search |
+| `qbittorrent.py` | 4 | qBittorrent Web API | Torrent list/add/pause/resume |
 
 ### 2.7 Library Management (`src/library/`)
 
 | Module | Functions | Purpose |
 |---|---|---|
-| `scanner.py` | `build_inventory`, `cross_reference`, `find_orphans`, `find_duplicates` | Filesystem inventory + cross-reference against service DBs |
+| `scanner.py` | `build_inventory`, `find_duplicates` | Filesystem inventory + duplicate detection (size + content fingerprint) |
 | `naming.py` | `check_naming`, `fix_naming`, `undo_rename` | Enforce naming conventions with reversible renames + undo logs |
 
 Naming conventions:
@@ -315,6 +331,38 @@ Data endpoint: `GET /api/dashboard/data` returns JSON.
 #### CLI (`cli.py`)
 
 Interactive REPL using `rich` for formatted output. Three entry points: `cli_repl()`, `cli_one_shot(query)`, `cli_health()`.
+
+### 2.x Requests & Cleanup subsystem
+
+Persistent state in one aiosqlite DB on the state volume (`src/store.py`:
+`requests`, `quarantine`, `rules` tables).
+
+**Request loop (seerr pattern):** with `users.admins` configured, non-admin
+Telegram chats become *requesters* — their "add X" (router path) records a
+pending request instead of adding directly, subject to a rolling quota
+(`users.request_limit`, per-chat overrides). Admins get a push
+(`notify_admins`) and decide with "approve #N" / "deny #N". Approval runs
+the Sonarr/Radarr add (season-scoped when requested, e.g. "add Severance
+season 2"); the 20-minute `availability_check` scheduler job diffs approved
+requests against Emby and pushes "ready to watch" to the requester
+(`notify_chat`). Non-admin chats never reach the LLM agent — its toolset
+includes direct add/delete tools that would bypass the gate.
+
+**Auto-approve rules (stored in `rules`, evaluated in
+`src/engine/rules.py`):** "auto-approve requests from alice",
+"auto-approve anything under 3 seasons", "always send anime to
+/media/anime" — conditions AND-match on requester/type/season count/
+year/genre; actions auto-approve and override quality profile/root folder.
+
+**Cleanup (Maintainerr pattern):** "delete Dune in 14 days" quarantines the
+item (visible "Leaving Soon" Emby collection, best-effort) — the daily
+4:30 AM `cleanup_sweep` executes only items whose grace period elapsed;
+"keep Dune" reprieves any time before that. Actions are graduated: `delete`
+(files removed + import-list exclusion) or `unmonitor` (files kept).
+Retention rules ("keep the newest 10 episodes of X") prune older episode
+files each sweep. Fail-safe invariant throughout: a service that can't be
+reached means the item is *skipped*, never actioned — unknown state = no
+action.
 
 ---
 
@@ -485,7 +533,7 @@ All API keys in **password manager **, injected via `.env` → Docker `env_file`
 
 ### Why `create_react_agent` instead of custom StateGraph
 
-The ReAct loop handles the tool-call cycle automatically. For a tool-heavy agent with 70 tools, this is simpler and more reliable than hand-wiring a custom graph. The system prompt constrains behavior sufficiently.
+The ReAct loop handles the tool-call cycle automatically. For a tool-heavy agent with 102 tools, this is simpler and more reliable than hand-wiring a custom graph. The system prompt constrains behavior sufficiently.
 
 ### Why strings instead of structured returns
 

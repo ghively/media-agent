@@ -92,14 +92,24 @@ async def library_check_naming(path: str, convention: str = "tv") -> str:
 
 
 @tool
-async def library_fix_naming(path: str, convention: str = "tv") -> str:
-    """Rename files to match naming conventions. Creates an undo log before renaming.
-    Conventions: 'tv', 'movie', or 'music'. Returns a summary of renames made.
-    Pass the directory path and the convention to apply."""
+async def library_fix_naming(path: str, convention: str = "tv", confirm: bool = False) -> str:
+    """Rename files to match naming conventions (irreversible in bulk; an undo
+    log is written first). Call with confirm=False first: it returns the
+    would-be renames without touching anything. After the user approves, call
+    again with confirm=True to actually rename.
+    Conventions: 'tv', 'movie', or 'music'."""
     target, err = _confine(path)
     if err:
         return err
     try:
+        if not confirm:
+            preview = await asyncio.to_thread(_check_naming, target, convention)
+            return (
+                f"⏸️ Preview only — no files were renamed.\n\n{preview}\n\n"
+                "Ask the user to approve, then call library_fix_naming again "
+                "with confirm=true to apply these renames (an undo log is "
+                "written first)."
+            )
         return await asyncio.to_thread(_fix_naming, target, convention)
     except Exception as e:
         return f"❌ Error: {type(e).__name__}: {e}"
