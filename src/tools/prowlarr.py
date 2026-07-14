@@ -37,6 +37,16 @@ def _size_str(size: int) -> str:
     return f"{gb:.1f} GB" if gb >= 1 else f"{size / 1024 / 1024:.0f} MB"
 
 
+async def _search_raw(query: str, limit: int = 50) -> list[dict] | None:
+    """Raw search results for the router's deterministic grab flow.
+    Returns None when Prowlarr isn't configured; raises on request failure."""
+    if _cfg() is None:
+        return None
+    results = await _get("/search", params={"query": query, "limit": limit})
+    results.sort(key=lambda r: r.get("seeders") or 0, reverse=True)
+    return results
+
+
 @tool
 async def prowlarr_search(query: str) -> str:
     """Unified search across ALL configured Prowlarr indexers (torrents +

@@ -51,7 +51,8 @@ User Input (CLI/API/Dashboard)
     │
     ▼
 Deterministic router (src/graphs/router.py)   ← tried FIRST, no LLM
-    │ ~45 intent groups across ALL domains: queue/health/disk/search/add,
+    │ ~60 intent groups across ALL domains (politeness/filler is stripped,
+    │ so "hey can you check the queue please" routes like "check the queue"): queue/health/disk/search/add,
     │ ROMs & emulation, YouTube (URLs + subscriptions), Audible, Bandcamp,
     │ library maintenance, SABnzbd/DS, quality profiles, Emby search
     │ media URLs dispatch by type: youtube/bandcamp/magnet/.torrent/.nzb
@@ -59,6 +60,8 @@ Deterministic router (src/graphs/router.py)   ← tried FIRST, no LLM
     │ handled? → tool call(s) → instant reply (recorded into agent memory)
     │ no match ▼
 LangGraph create_react_agent(llm, 92 tools)   via run_agent()/stream_agent()
+    │ domain-scoped: an unambiguous message binds only that domain's ~10
+    │ tools (src/graphs/scoping.py) — small models pick from a short menu
     │
     ├── LLM decides which tools to call
     ├── Tools execute (async, parallel when possible)

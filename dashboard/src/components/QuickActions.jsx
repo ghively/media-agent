@@ -10,10 +10,14 @@ export default function QuickActions({ onAction }) {
     { icon: '📅', label: 'Calendar', query: 'what is airing this week?' },
     { icon: '🔍', label: 'Find Missing', query: 'find all missing episodes and movies' },
     { icon: '💾', label: 'Disk Space', query: 'check disk space' },
-    { icon: '🧲', label: 'Torrents', query: 'list download station tasks' },
+    { icon: '🧲', label: 'Torrents', query: 'torrents' },
     { icon: '🕹️', label: 'Games', query: 'list my rom collection' },
     { icon: '▶️', label: 'YouTube Subs', query: 'list my youtube subscriptions' },
     { icon: '🎧', label: 'Audiobooks', query: 'list my audiobooks' },
+    { icon: '🎙️', label: 'Podcasts', query: 'list my podcasts' },
+    { icon: '🎼', label: 'Artists', query: 'list my artists' },
+    { icon: '📚', label: 'Comics', query: 'recent comics' },
+    { icon: '❓', label: 'Help', query: 'help' },
   ]
 
   return (

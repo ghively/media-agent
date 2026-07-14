@@ -48,9 +48,9 @@ export async function resetConversation() {
 
 /**
  * Stream chat via SSE using fetch + ReadableStream.
- * Calls onToken for each chunk, onDone(full, suggestions) when complete —
- * suggestions is a list of quick-reply strings when a confirmation is
- * pending (yes/no/pick buttons), else undefined.
+ * Calls onToken for each chunk, onDone(full, suggestions, via) when
+ * complete — suggestions is a list of quick-reply strings when a
+ * confirmation is pending; via is 'router' (instant, no LLM) or 'llm'.
  */
 export async function streamChat(message, { onToken, onDone, onError }) {
   try {
@@ -82,7 +82,7 @@ export async function streamChat(message, { onToken, onDone, onError }) {
               onToken?.(payload.content)
             }
             if (payload.done) {
-              onDone?.(payload.full || '', payload.suggest)
+              onDone?.(payload.full || '', payload.suggest, payload.via)
               return
             }
           } catch (e) {

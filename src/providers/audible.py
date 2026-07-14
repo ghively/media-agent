@@ -41,6 +41,24 @@ def _download_dir() -> Path:
     return Path(cfg.get("download_path") or "/media/audiobooks")
 
 
+async def _fetch_library() -> list[dict]:
+    """Parsed Audible library for programmatic use (router title lookup).
+    Raises on any failure — callers fall back to the LLM path."""
+    auth_file = _auth_file()
+    if not auth_file.exists():
+        raise RuntimeError("Audible not authenticated")
+    proc = await asyncio.create_subprocess_exec(
+        "audible", "library", "list",
+        "--auth-file", str(auth_file),
+        "--output", "json",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+    if proc.returncode != 0:
+        raise RuntimeError("audible library list failed")
+    return json.loads(stdout)
+
+
 @tool
 async def audible_list_library(page: int = 1) -> str:
     """List audiobooks in your Audible library (30 per page, with the ASIN

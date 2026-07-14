@@ -115,6 +115,10 @@ llm:
 ### 2.3 Deterministic Router (`src/graphs/router.py`) — the fast path
 
 Every user message hits the **deterministic intent router before the LLM**.
+Politeness/filler is stripped first ("hey can you … please" routes like the
+bare command), coverage is tracked (`get_stats()`, surfaced on the dashboard
+as "⚡ N% instant"), and full acquire flows run without any LLM: audiobook
+by title, add-artist, and indexer search→grab (Prowlarr → qBittorrent/DS/SAB).
 ~45 intent groups spanning every tool domain — TV/movies, health/disk/queues,
 Emby, SABnzbd, Download Station, **ROMs & emulation platforms**, **YouTube**,
 **Audible audiobooks**, **Bandcamp**, and **library maintenance** — are
@@ -213,7 +217,8 @@ The agent loops: LLM decides which tools to call → tools execute → results g
 - trim thread history to the last 20 messages (`_trim_history`, aligned to a HumanMessage boundary so tool calls are never orphaned) before every model call, and compact stored checkpoints past 120 messages down to 40, so persistent threads never overflow `num_ctx` or RAM;
 - drive the circuit breaker: two graphs are compiled against the same checkpointer — local-primary (with per-call hosted fallback) and hosted-primary — and `pick_agent()` selects one per request from the breaker state, so an OPEN breaker skips a dead Ollama's timeouts entirely;
 - never raise: LLM failures come back as friendly ❌ strings, and each failure/success updates the breaker (an `on_llm_error` callback attributes with_fallbacks rescues to the *local* model, so a dead Ollama still opens the breaker);
-- journal every LLM-path tool call to `/state/tool_audit.jsonl` (`src/audit.py`) — name, args, result, duration — so file renames and bulk downloads are traceable after the fact.
+- journal every LLM-path tool call to `/state/tool_audit.jsonl` (`src/audit.py`) — name, args, result, duration — so file renames and bulk downloads are traceable after the fact;
+- **scope tools per turn** (`src/graphs/scoping.py`, `llm.tool_scoping`): a deterministic keyword classifier picks the message's domain, and the turn runs on a graph bound to only that domain's ~10 tools instead of all 92 — the main lever that keeps very small models reliable. Ambiguous messages (ties, no signal) use the full toolset.
 
 Stateless OpenAI-API requests use a throwaway per-request agent thread that is deleted afterwards (`forget_thread`), plus a *stable* router thread keyed on the conversation's first user message so yes/no confirmations survive across requests. The dashboard gives each browser tab its own `dashboard-<session>` thread (reset via `POST /api/dashboard/reset`).
 

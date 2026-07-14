@@ -160,7 +160,10 @@ Each `session_id` gets its own conversation thread (`message` is capped at
 4000 chars); omitting it uses the shared legacy `dashboard` thread.
 
 The final SSE event may include `"suggest": ["yes", "no", ...]` — quick
-replies for a pending confirmation, rendered as buttons by the dashboard.
+replies for a pending confirmation, rendered as buttons by the dashboard —
+and always carries `"via"`: `"router"` (answered deterministically, no LLM)
+or `"llm"`. `/api/dashboard/data` includes `router_stats`
+(`{router, llm, total, instant_pct}`) for the ⚡ coverage chip.
 
 ```
 POST /api/dashboard/reset

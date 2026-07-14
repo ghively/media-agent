@@ -1,10 +1,16 @@
 export default function ContentProviders({ providers }) {
-  const providerConfig = [
-    { key: 'youtube', icon: '▶️', label: 'YouTube' },
-    { key: 'audible', icon: '🎧', label: 'Audible' },
-    { key: 'roms', icon: '🕹️', label: 'ROMs' },
-    { key: 'bandcamp', icon: '🎵', label: 'Bandcamp' },
-  ]
+  // Icons for known providers; anything else the API reports still renders
+  // (new integrations show up without a frontend change).
+  const ICONS = {
+    youtube: '▶️', audible: '🎧', roms: '🕹️', bandcamp: '🎵',
+    lidarr: '🎼', prowlarr: '🔍', komga: '📚', calibre: '📖',
+    qbittorrent: '🧲', podcasts: '🎙️', twitch: '📡',
+  }
+  const providerConfig = Object.keys(providers || {}).map((key) => ({
+    key,
+    icon: ICONS[key] || '🔌',
+    label: providers[key]?.name || key,
+  }))
 
   // API (`local_tools`) reports status as available | warning | error.
   const getStatusBadge = (status) => {

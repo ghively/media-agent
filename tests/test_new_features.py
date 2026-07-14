@@ -26,7 +26,6 @@ from tests.test_router import _patch_tool
     ("recent ebooks", "src.tools.calibre.calibre_recent"),
     ("list my artists", "src.tools.lidarr.list_artists"),
     ("music queue", "src.tools.lidarr.get_music_queue"),
-    ("search the indexers for Alien 1979", "src.tools.prowlarr.prowlarr_search"),
 ])
 async def test_new_intents_dispatch(monkeypatch, message, dotted):
     fake = _patch_tool(monkeypatch, dotted, "✅ ok")

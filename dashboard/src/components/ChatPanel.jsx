@@ -10,6 +10,8 @@ export default function ChatPanel({ initialQuery }) {
   // Quick replies (yes/no/pick buttons) offered when a confirmation is
   // pending after the last agent message.
   const [suggestions, setSuggestions] = useState([])
+  // Elapsed seconds while the (possibly slow, local) model thinks.
+  const [thinkingSeconds, setThinkingSeconds] = useState(0)
   const messagesEndRef = useRef(null)
   const textareaRef = useRef(null)
   const currentAssistantMessageRef = useRef(null)
@@ -24,6 +26,17 @@ export default function ChatPanel({ initialQuery }) {
     scrollToBottom()
   }, [messages])
 
+  useEffect(() => {
+    if (!isGenerating) {
+      setThinkingSeconds(0)
+      return
+    }
+    const start = Date.now()
+    const timer = setInterval(
+      () => setThinkingSeconds(Math.floor((Date.now() - start) / 1000)), 1000)
+    return () => clearInterval(timer)
+  }, [isGenerating])
+
   const send = async (rawMessage) => {
     const userMessage = (rawMessage ?? '').trim()
     if (!userMessage || isGeneratingRef.current) return
@@ -34,11 +47,14 @@ export default function ChatPanel({ initialQuery }) {
     setMessages(prev => [...prev, { role: 'user', content: userMessage }, { role: 'assistant', content: '' }])
     currentAssistantMessageRef.current = ''
 
-    const setLastAssistant = (content) => {
+    const setLastAssistant = (content, extra) => {
       setMessages(prev => {
         const next = [...prev]
         const last = next[next.length - 1]
-        if (last && last.role === 'assistant') last.content = content
+        if (last && last.role === 'assistant') {
+          last.content = content
+          if (extra) Object.assign(last, extra)
+        }
         return next
       })
     }
@@ -55,11 +71,10 @@ export default function ChatPanel({ initialQuery }) {
           currentAssistantMessageRef.current += token
           setLastAssistant(currentAssistantMessageRef.current)
         },
-        onDone: (fullResponse, suggested) => {
+        onDone: (fullResponse, suggested, via) => {
           // If nothing streamed (e.g. only tool calls), fall back to the final text.
-          if (!currentAssistantMessageRef.current && fullResponse) {
-            setLastAssistant(fullResponse)
-          }
+          const content = currentAssistantMessageRef.current || fullResponse || ''
+          setLastAssistant(content, via === 'router' ? { instant: true } : null)
           if (suggested && suggested.length) setSuggestions(suggested.slice(0, 7))
           finish()
         },
@@ -124,7 +139,14 @@ export default function ChatPanel({ initialQuery }) {
               {message.role === 'system' ? (
                 <div className="text-sm">{message.content}</div>
               ) : (
-                <div className="text-sm whitespace-pre-wrap break-words leading-relaxed">{message.content}</div>
+                <>
+                  <div className="text-sm whitespace-pre-wrap break-words leading-relaxed">{message.content}</div>
+                  {message.instant && (
+                    <div className="mt-1 text-[0.65rem] text-dark-500 select-none" title="Answered by the deterministic router — no LLM round trip">
+                      ⚡ instant
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -144,12 +166,15 @@ export default function ChatPanel({ initialQuery }) {
         )}
         {isGenerating && !currentAssistantMessageRef.current && (
           <div className="flex justify-start">
-            <div className="bg-dark-700 rounded-2xl rounded-bl-md px-4 py-3 border border-dark-500/60">
+            <div className="bg-dark-700 rounded-2xl rounded-bl-md px-4 py-3 border border-dark-500/60 flex items-center gap-3">
               <div className="flex gap-1">
                 <span className="typing-dot" />
                 <span className="typing-dot" />
                 <span className="typing-dot" />
               </div>
+              {thinkingSeconds >= 3 && (
+                <span className="text-xs text-dark-500">thinking… {thinkingSeconds}s</span>
+              )}
             </div>
           </div>
         )}
