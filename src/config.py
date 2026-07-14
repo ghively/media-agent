@@ -129,6 +129,14 @@ class Settings:
     def scheduler(self) -> dict:
         return self._data.get("scheduler", {})
 
+    @property
+    def users(self) -> dict:
+        return self._data.get("users", {})
+
+    @property
+    def cleanup(self) -> dict:
+        return self._data.get("cleanup", {})
+
     def validate(self) -> list[str]:
         """Return warnings for config that will fail confusingly later.
 

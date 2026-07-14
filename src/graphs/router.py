@@ -164,6 +164,27 @@ _MOVIE_WORDS = re.compile(r"\b(?:the\s+)?(?:movie|film)\b", re.IGNORECASE)
 _FILLER_RE = re.compile(r"\b(?:called|named|titled)\b", re.IGNORECASE)
 
 
+_SEASON_RE = re.compile(r"\b(?:season\s+(?P<n1>\d{1,3})|s(?P<n2>\d{1,2}))\b",
+                        re.IGNORECASE)
+
+
+def _extract_season(raw: str) -> tuple[str, int | None]:
+    """Pull a season scope out of an add/search phrase.
+
+    "Severance season 2" → ("Severance", 2);  "severance s2" → ("severance", 2)
+    Season-level requests are the headline seerr feature — "add show X"
+    shouldn't force whole-series downloads when the user asked for one season.
+    """
+    m = _SEASON_RE.search(raw)
+    if not m:
+        return raw, None
+    season = int(m.group("n1") or m.group("n2"))
+    remainder = _WS_RE.sub(" ", _SEASON_RE.sub(" ", raw)).strip(" \"',-")
+    if not remainder:
+        return raw, None
+    return remainder, season
+
+
 def _extract_media_query(raw: str) -> tuple[str, str | None]:
     """Pull an optional media-type hint out of a search/add phrase.
 
@@ -345,14 +366,30 @@ async def _queue_release(result: dict) -> str:
     return await sabnzbd_add_nzb.ainvoke({"nzb_url": url})
 
 
-async def _add_result(result: dict) -> str:
+async def _add_result(result: dict, thread_id: str = "") -> str:
     """Execute the selected search result (Sonarr, Radarr, ROM, audiobook,
-    artist, or indexer release)."""
+    artist, or indexer release).
+
+    Role gate: when the role system is on (users.admins configured),
+    non-admin Telegram chats don't add directly — TV/movie picks become
+    approval-gated *requests* (the seerr loop); everything else is refused.
+    """
     title = str(result.get("title", "Unknown"))
     source_id = result.get("id")
     source_type = result.get("source_type")
     if source_id is None:
         return f"❌ Can't grab '{title}' — the search result has no usable ID."
+
+    from src.users import is_admin, telegram_chat_id
+    if thread_id and not is_admin(thread_id):
+        if source_type in ("tv", "movie"):
+            from src.tools.requests_tools import create_request
+            return await create_request(
+                telegram_chat_id(thread_id) or thread_id, result,
+                season=result.get("season"))
+        return ("⛔ Only admins can start that kind of download. You can "
+                "request TV shows and movies — try 'add <title>'.")
+
     if source_type == "movie":
         from src.tools.radarr import add_movie
         return await add_movie.ainvoke({"tmdb_id": int(source_id), "title": title})
@@ -375,7 +412,10 @@ async def _add_result(result: dict) -> str:
             "confirm": True,
         })
     from src.tools.sonarr import add_tv_show
-    return await add_tv_show.ainvoke({"tvdb_id": int(source_id), "title": title})
+    args = {"tvdb_id": int(source_id), "title": title}
+    if result.get("season"):
+        args["season"] = int(result["season"])
+    return await add_tv_show.ainvoke(args)
 
 
 def _confirm_action(thread_id: str, prompt: str, action) -> str:
@@ -448,14 +488,14 @@ async def _resolve_pending(text: str, thread_id: str) -> str | None:
     if _YES_RE.match(text):
         if pending.auto_add:
             _pending.pop(thread_id, None)
-            return await _add_result(pending.results[0])
+            return await _add_result(pending.results[0], thread_id)
         return ("Which one? Say 'the first one' or 'add #2' "
                 "and I'll grab it.")
 
     idx = _parse_selection(text, len(pending.results))
     if idx is not None:
         _pending.pop(thread_id, None)
-        return await _add_result(pending.results[idx])
+        return await _add_result(pending.results[idx], thread_id)
 
     # Not a confirmation/selection — let the LLM (or other intents) handle it,
     # but keep the pending state alive in case they come back to it.
@@ -993,6 +1033,8 @@ _HELP_TEXT = """Here's what you can ask me — these all answer instantly:
 🕹️ Games: "list my rom collection" · "download snes roms" · "scan my roms" · "any bad roms?"
 📚 Comics & ebooks: "search comics for One Piece" · "recent comics" · "search ebooks for Dune"
 🔍 Deep search: "search the indexers for <anything>" — then pick a result to queue it
+📨 Requests: "add Severance season 2" · "list requests" · "approve #3" / "deny #3" · "my requests"
+🧹 Cleanup: "delete Dune in 14 days" · "what's leaving soon?" · "keep Dune" · "keep the newest 10 episodes of NewsShow" · "list rules"
 ❤️ System: "health check" · "disk space" · "quality profiles" · "help"
 
 Paste any media URL (YouTube, Bandcamp, magnet, .torrent, .nzb) and I'll handle it."""
@@ -1265,15 +1307,222 @@ async def _h_search(match, thread_id):
 
 async def _h_add(match, thread_id):
     raw = match.group("query").strip()
+    raw, season = _extract_season(raw)
     query, media_type = _extract_media_query(raw)
+    if season is not None:
+        media_type = "tv"  # a season scope implies a show
     if not query or len(query) > 80 or _is_deictic(query) or _is_command_noun(query):
         return None
     results = await _structured_search(query, media_type)
     if not results:
         return (f"I couldn't find anything matching '{query}' to add. "
                 "Try a different spelling?")
+    if season is not None:
+        for r in results:
+            if r.get("source_type") == "tv":
+                r["season"] = season
     _set_pending(thread_id, PendingSelection(results=results, auto_add=True))
     return _format_results(results, query, auto_add=True)
+
+
+# ── Requests & approvals (the seerr loop) ────────────────────────────────────
+
+def _admin_only(thread_id: str) -> str | None:
+    from src.users import is_admin
+    if is_admin(thread_id):
+        return None
+    return "⛔ Only admins can do that."
+
+
+async def _h_list_requests(match, thread_id):
+    from src.tools.requests_tools import format_requests
+    status = (match.groupdict().get("status") or "").strip().lower() or None
+    return await format_requests(status)
+
+
+async def _h_my_requests(match, thread_id):
+    from src import store
+    from src.users import request_limit_for, telegram_chat_id
+    requester = telegram_chat_id(thread_id) or thread_id
+    try:
+        mine = [r for r in await store.list_requests(limit=100)
+                if r["requester"] == requester]
+    except Exception as e:
+        return f"❌ Couldn't read requests: {type(e).__name__}: {e}"
+    count, days = request_limit_for(requester)
+    quota = ""
+    if count > 0:
+        used = await store.count_recent_requests(requester, days)
+        quota = f"\n\nQuota: {used} of {count} used this {days}-day window."
+    if not mine:
+        return f"📭 You haven't requested anything yet.{quota}"
+    icons = {"pending": "⏳", "approved": "▶️", "denied": "🚫", "available": "✅"}
+    lines = ["📨 Your requests:", ""]
+    for r in mine[:15]:
+        season = f" S{r['season']}" if r.get("season") else ""
+        lines.append(f"  {icons.get(r['status'], '•')} #{r['id']} "
+                     f"{r['title']}{season} — {r['status']}")
+    return "\n".join(lines) + quota
+
+
+async def _h_approve_request(match, thread_id):
+    gate = _admin_only(thread_id)
+    if gate:
+        return gate
+    from src.tools.requests_tools import approve
+    return await approve(int(match.group("id")), decided_by=thread_id)
+
+
+async def _h_deny_request(match, thread_id):
+    gate = _admin_only(thread_id)
+    if gate:
+        return gate
+    from src.tools.requests_tools import deny
+    reason = (match.groupdict().get("reason") or "").strip()
+    return await deny(int(match.group("id")), decided_by=thread_id, reason=reason)
+
+
+# ── Cleanup: quarantine, retention, rules ────────────────────────────────────
+
+async def _h_leaving_soon(match, thread_id):
+    from src.tools.cleanup_tools import quarantine_summary
+    return await quarantine_summary()
+
+
+async def _h_keep(match, thread_id):
+    # Only claim "keep X" when X is actually quarantined — any other
+    # "keep ..." phrasing belongs to the LLM.
+    from src import store
+    from src.tools.cleanup_tools import reprieve
+    title = match.group("title").strip(" \"'")
+    try:
+        if await store.quarantine_find(title) is None:
+            return None
+    except Exception:
+        return None
+    return await reprieve(title)
+
+
+async def _h_schedule_cleanup(match, thread_id):
+    gate = _admin_only(thread_id)
+    if gate:
+        return gate
+    title = match.group("title").strip(" \"'")
+    days = int(match.group("days")) if match.groupdict().get("days") else None
+    action = "unmonitor" if "unmonitor" in match.group(0).lower() else "delete"
+    from src.tools.cleanup_tools import schedule_cleanup
+
+    async def _do_schedule():
+        return await schedule_cleanup(title, days, action)
+
+    when = f"in {days} day(s)" if days else "after the grace period"
+    return _confirm_action(
+        thread_id,
+        f"Schedule '{title}' to be {action}d {when}? It stays rescuable with "
+        f"'keep {title}' until then. (yes/no)",
+        _do_schedule)
+
+
+async def _h_retention(match, thread_id):
+    gate = _admin_only(thread_id)
+    if gate:
+        return gate
+    n = int(match.group("n"))
+    title = match.group("title").strip(" \"'")
+    from src.tools.cleanup_tools import cleanup_set_retention
+
+    async def _do_retention():
+        return await cleanup_set_retention.ainvoke(
+            {"series_title": title, "keep_last": n})
+
+    return _confirm_action(
+        thread_id,
+        f"Keep only the newest {n} episodes of '{title}' and delete older "
+        "files on the daily sweep — confirm? (yes/no)",
+        _do_retention)
+
+
+async def _h_run_cleanup(match, thread_id):
+    gate = _admin_only(thread_id)
+    if gate:
+        return gate
+    from src.tools.cleanup_tools import run_sweep
+    return await run_sweep()
+
+
+async def _h_list_rules(match, thread_id):
+    from src.tools.cleanup_tools import cleanup_list_rules
+    return await cleanup_list_rules.ainvoke({})
+
+
+async def _h_remove_rule(match, thread_id):
+    gate = _admin_only(thread_id)
+    if gate:
+        return gate
+    from src.tools.cleanup_tools import cleanup_remove_rule
+    return await cleanup_remove_rule.ainvoke({"rule_id": int(match.group("id"))})
+
+
+async def _h_auto_approve_rule(match, thread_id):
+    """NL auto-approve rules — the piece seerr hasn't shipped (#1184)."""
+    gate = _admin_only(thread_id)
+    if gate:
+        return gate
+    groups = match.groupdict()
+    conditions: dict = {}
+    if groups.get("who"):
+        who = groups["who"].strip(" \"'")
+        from src.users import chat_id_for_name
+        conditions["requester"] = chat_id_for_name(who) or who
+    if groups.get("n"):
+        conditions["media_type"] = "tv"
+        conditions["max_seasons"] = int(groups["n"])
+    if groups.get("movies"):
+        conditions["media_type"] = "movie"
+    if groups.get("genre"):
+        conditions["genre"] = groups["genre"].strip(" \"'")
+    if not conditions:
+        return None
+    from src import store
+    from src.engine.rules import describe_rule
+
+    async def _do_rule():
+        rule_id = await store.rule_add("auto_approve", conditions, {"approve": True})
+        rule = {"id": rule_id, "kind": "auto_approve",
+                "conditions": conditions, "actions": {"approve": True}}
+        return f"✅ Added rule: {describe_rule(rule)}"
+
+    summary = ", ".join(f"{k}={v}" for k, v in conditions.items())
+    return _confirm_action(
+        thread_id,
+        f"Auto-approve future requests matching [{summary}] — confirm? (yes/no)",
+        _do_rule)
+
+
+async def _h_routing_rule(match, thread_id):
+    """'always send anime to /media/anime' → genre-based root-folder routing."""
+    gate = _admin_only(thread_id)
+    if gate:
+        return gate
+    genre = match.group("genre").strip(" \"'")
+    folder = match.group("folder").strip()
+    from src import store
+    from src.engine.rules import describe_rule
+
+    async def _do_rule():
+        rule_id = await store.rule_add(
+            "auto_approve", {"genre": genre},
+            {"approve": True, "root_folder": folder})
+        rule = {"id": rule_id, "kind": "auto_approve",
+                "conditions": {"genre": genre},
+                "actions": {"approve": True, "root_folder": folder}}
+        return f"✅ Added rule: {describe_rule(rule)}"
+
+    return _confirm_action(
+        thread_id,
+        f"Auto-approve '{genre}' requests and send them to {folder} — "
+        "confirm? (yes/no)",
+        _do_rule)
 
 
 # ── intent table ─────────────────────────────────────────────────────────────
@@ -1621,6 +1870,64 @@ _INTENTS: list[tuple[str, list[re.Pattern], object]] = [
         r"^undo (?:the )?(?:last )?renames? (?:from |using |with )?(?P<path>/\S+)$",
         r"^revert renames? (?:from |using |with )?(?P<path>/\S+)$",
     ), _h_lib_undo),
+
+    # ── Requests & approvals ──
+    ("my_requests", _rx(
+        r"^my (?:media )?requests?$",
+        r"^(?:what(?:'s| is) )?my (?:request )?quota$",
+        r"^how many requests (?:do i have|are left|left)$",
+    ), _h_my_requests),
+    ("list_requests", _rx(
+        r"^(?:list |show |any )?(?:(?P<status>pending|approved|denied|available) )?(?:media )?requests$",
+        r"^(?:the )?request (?:queue|list)$",
+        r"^what(?:'s| is) (?:pending|requested)$",
+    ), _h_list_requests),
+    ("approve_request", _rx(
+        r"^approve (?:request )?#?(?P<id>\d+)$",
+    ), _h_approve_request),
+    ("deny_request", _rx(
+        r"^(?:deny|reject|decline) (?:request )?#?(?P<id>\d+)"
+        r"(?:[ :,-]+(?:because |reason[: ]*)?(?P<reason>.+))?$",
+    ), _h_deny_request),
+
+    # ── Cleanup: quarantine / retention / rules ──
+    ("leaving_soon", _rx(
+        r"^what(?:'s| is) leaving(?: soon)?$",
+        r"^leaving soon$",
+        r"^(?:show |list |check )?(?:the )?(?:cleanup|quarantine) (?:status|list|schedule|queue)$",
+        r"^what(?:'s| is) (?:scheduled|due) for (?:cleanup|deletion)$",
+    ), _h_leaving_soon),
+    ("retention_rule", _rx(
+        r"^keep (?:only )?(?:the )?(?:newest|latest|last) (?P<n>\d+) episodes?"
+        r"(?: of| from) (?P<title>.+)$",
+    ), _h_retention),
+    ("keep", _rx(
+        r"^(?:keep|rescue|save|don't delete|dont delete) (?P<title>.+)$",
+    ), _h_keep),
+    ("schedule_cleanup", _rx(
+        r"^(?:delete|remove|unmonitor) (?P<title>.+?) in (?P<days>\d+) days?$",
+        r"^schedule (?P<title>.+?) for (?:cleanup|deletion)(?: in (?P<days>\d+) days?)?$",
+    ), _h_schedule_cleanup),
+    ("run_cleanup", _rx(
+        r"^run (?:the )?cleanup(?: sweep)?(?: now)?$",
+        r"^cleanup now$",
+    ), _h_run_cleanup),
+    ("auto_approve_rule", _rx(
+        r"^auto[- ]?approve (?:all )?(?:requests? )?from (?P<who>.+)$",
+        r"^auto[- ]?approve (?:any(?:thing)? |all )?(?:shows? )?(?:under|with (?:at most|up to)) (?P<n>\d+) seasons?$",
+        r"^auto[- ]?approve (?:all )?(?P<movies>movies?)$",
+        r"^auto[- ]?approve (?:the )?genre (?P<genre>[\w -]+)$",
+    ), _h_auto_approve_rule),
+    ("routing_rule", _rx(
+        r"^(?:always )?send (?P<genre>[\w -]+?) to (?P<folder>/\S+)$",
+        r"^route (?P<genre>[\w -]+?) to (?P<folder>/\S+)$",
+    ), _h_routing_rule),
+    ("list_rules", _rx(
+        r"^(?:list |show )(?:my |the )?(?:automation |auto[- ]?approve |cleanup |request )?rules$",
+    ), _h_list_rules),
+    ("remove_rule", _rx(
+        r"^(?:remove|delete|disable) rule #?(?P<id>\d+)$",
+    ), _h_remove_rule),
 
     # ── Emby search ("do I have X?") ──
     ("emby_search", _rx(

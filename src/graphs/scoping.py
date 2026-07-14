@@ -82,10 +82,18 @@ DOMAINS: dict[str, tuple[str, list[str]]] = {
     ),
     "library_files": (
         r"\b(?:duplicates?|naming|renam(?:e|ing)|inventory|folders?|files?|"
-        r"undo|cleanup)\b",
+        r"undo)\b",
         ["library_build_inventory", "library_find_duplicates",
          "library_check_naming", "library_fix_naming", "library_undo_rename",
          "emby_scan"],
+    ),
+    "requests_cleanup": (
+        r"\b(?:requests?|approve|deny|quota|quarantine|leaving soon|"
+        r"retention|cleanup|reprieve)\b",
+        ["list_media_requests", "approve_media_request", "deny_media_request",
+         "cleanup_status", "cleanup_schedule", "cleanup_keep",
+         "cleanup_run_now", "cleanup_set_retention", "cleanup_list_rules",
+         "cleanup_remove_rule"],
     ),
 }
 

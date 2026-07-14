@@ -28,6 +28,21 @@ class RadarrClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def _put(self, endpoint: str, json_data: dict):
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.put(
+                f"{self.base_url}/api/v3{endpoint}", headers=self.headers, json=json_data
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    async def _delete(self, endpoint: str, params: dict | None = None):
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.delete(
+                f"{self.base_url}/api/v3{endpoint}", headers=self.headers, params=params
+            )
+            resp.raise_for_status()
+
 
 def _client() -> RadarrClient:
     s = get_settings().radarr
@@ -57,15 +72,17 @@ async def search_movie(query: str) -> str:
 
 
 @tool
-async def add_movie(tmdb_id: int, title: str) -> str:
-    """Add a movie to the monitored library by its TMDb ID."""
+async def add_movie(tmdb_id: int, title: str,
+                    quality_profile_id: int = 0, root_folder: str = "") -> str:
+    """Add a movie to the monitored library by its TMDb ID. Optional
+    quality_profile_id / root_folder override the configured defaults."""
     try:
         settings = get_settings().radarr
         body = {
             "tmdbId": tmdb_id,
             "title": title,
-            "qualityProfileId": settings.get("quality_profile_id", 4),
-            "rootFolderPath": settings.get("root_folder_path", "/your/media/movies"),
+            "qualityProfileId": quality_profile_id or settings.get("quality_profile_id", 4),
+            "rootFolderPath": root_folder or settings.get("root_folder_path", "/your/media/movies"),
             "monitored": True,
             "addOptions": {"searchForMovie": True},
         }
