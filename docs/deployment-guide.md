@@ -82,15 +82,17 @@ building:
    `agent-mesh` entries from the `networks:` blocks in `docker-compose.yml`
    and reach Ollama by host IP instead.
 
-2. **Mount your media library.** Compose mounts only `./config` and the
-   `/state` volume. The YouTube/Audible/ROM download paths and the library
-   scanner default to `/media/...` — without a bind mount those writes land
-   inside the container and vanish on rebuild. Add one under `volumes:`:
-   ```yaml
-       - /path/to/your/media:/media
+2. **Point MEDIA_ROOT at your media library.** Compose mounts
+   `${MEDIA_ROOT:-./media}` at `/media`, where every download provider
+   (music, audiobooks, ROMs, YouTube) and the library scanner write. Set it
+   in `.env` to the real library (e.g. an NFS mount of the NAS):
+   ```bash
+   MEDIA_ROOT=/mnt/nas/media
    ```
-   (Skip this if you only use the API-backed tools — Sonarr, Radarr, Emby,
-   SABnzbd, Download Station — which run on their own hosts.)
+   Left unset, downloads land in `./media` next to the compose file — still
+   persistent, just not on the NAS. Audible auth lives on the `/state`
+   volume (`services.audible.auth_dir`, default `/state/audible`) and
+   survives restarts either way.
 
 ### 4. Build and Start
 
@@ -179,6 +181,9 @@ docker compose build --no-cache && docker compose up -d
 | `services.sabnzbd` | `url`, `api_key` | SABnzbd API |
 | `scheduler` | `enabled`, `jobs` | APScheduler config (currently auto-started) |
 | `library` | `media_root`, `naming_conventions` | Library management paths and rules |
+| `services.bandcamp` | `download_path` | Bandcamp download root (default `/media/music`) |
+| `services.audible` | `auth_dir`, `download_path` | Audible auth (default `/state/audible`) and download root (default `/media/audiobooks`) |
+| `notifications` | `url`, `kind` | Optional webhook for scheduler findings (`ntfy`, `discord`, or `generic`) |
 
 ### Environment Variables
 
@@ -193,6 +198,7 @@ docker compose build --no-cache && docker compose up -d
 | `HOSTED_LLM_KEY` | No | — | Fallback LLM API key |
 | `HOSTED_LLM_MODEL` | No | — | Fallback LLM model name |
 | `MEDIA_AGENT_CONFIG` | No | `config/settings.yaml` | Custom config path |
+| `MEDIA_ROOT` | Recommended | `./media` | Host path mounted at `/media` (docker-compose) — point at the real media library |
 
 ---
 

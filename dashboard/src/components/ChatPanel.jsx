@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
-import { streamChat } from '../api/client'
+import { streamChat, resetConversation } from '../api/client'
+
+const GREETING = { role: 'system', content: 'Hello! I\'m your Media Agent. I can help you manage your media library, search for content, and monitor your services. What would you like to do?' }
 
 export default function ChatPanel({ initialQuery }) {
-  const [messages, setMessages] = useState([
-    { role: 'system', content: 'Hello! I\'m your Media Agent. I can help you manage your media library, search for content, and monitor your services. What would you like to do?' }
-  ])
+  const [messages, setMessages] = useState([GREETING])
   const [input, setInput] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const messagesEndRef = useRef(null)
@@ -60,6 +60,10 @@ export default function ChatPanel({ initialQuery }) {
         },
         onError: (error) => {
           setLastAssistant(`❌ Error: ${error}`)
+          finish()
+        },
+        onAuthRequired: () => {
+          setLastAssistant('🔑 This server requires an API key — set it from the banner on the Overview tab, then try again.')
           finish()
         },
       })
@@ -168,7 +172,21 @@ export default function ChatPanel({ initialQuery }) {
             )}
           </button>
         </form>
-        <div className="mt-2 text-xs text-dark-500">Press Enter to send, Shift+Enter for newline</div>
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <div className="text-xs text-dark-500">Press Enter to send, Shift+Enter for newline</div>
+          <button
+            type="button"
+            disabled={isGenerating}
+            onClick={async () => {
+              await resetConversation()
+              setMessages([GREETING])
+            }}
+            className="text-xs text-dark-400 hover:text-accent-blue transition-colors disabled:opacity-50"
+            title="Forget this conversation and start fresh"
+          >
+            ↺ New conversation
+          </button>
+        </div>
       </div>
     </div>
   )

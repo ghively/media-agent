@@ -44,27 +44,51 @@ async def _run_interactive():
 def _run_server(host: str, port: int):
     """Start the API server with all interfaces: OpenAI-compatible API,
     web dashboard, and optional scheduler."""
+    import logging
+
     import uvicorn
     from src.interfaces.dashboard import mount_dashboard
     from src.interfaces.openai_api import app as api_app
+    from src.interfaces.openai_api import shutdown_hooks, startup_hooks
+
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
 
     mount_dashboard(api_app)
+
+    # Name each missing credential up front instead of letting it surface as
+    # a mysterious 401 from a service later.
+    try:
+        from src.config import get_settings
+        for warning in get_settings().validate():
+            logger.warning("config: %s", warning)
+    except Exception:
+        logger.exception("config validation failed")
+
+    # Close the conversation-memory DB cleanly on shutdown.
+    async def _close_runtime():
+        from src.graphs.conversational import aclose_runtime
+        await aclose_runtime()
+
+    shutdown_hooks.append(_close_runtime)
 
     # Start scheduler in the main event loop (not a bare thread).
     # AsyncIOScheduler must bind to the running event loop.
     try:
         from src.scheduler import MediaScheduler
-        import logging
-        logging.basicConfig(level=logging.INFO)
-        logger = logging.getLogger(__name__)
 
         sched = MediaScheduler()
 
-        # Register default jobs
+        # Register default jobs. Anything a human should act on is pushed via
+        # src.notify (no-op unless notifications.url is configured) — a
+        # finding that only reaches the container log reaches nobody.
         async def _health_check():
+            from src.notify import notify
             from src.tools.health import check_all_health
             result = await check_all_health.ainvoke({})
             logger.info("Scheduled health check: %s", result[:200])
+            if "❌" in result or "⚠️" in result:
+                await notify("Media Agent: health problem", result[:2000])
             return result
 
         async def _missing_search():
@@ -74,12 +98,14 @@ def _run_server(host: str, port: int):
             await search_missing_movies.ainvoke({})
             return "Missing search complete"
 
-        async def _daily_cleanup():
-            # Read-only daily report: surface health so problems are logged.
+        async def _daily_report():
+            # Read-only daily report: surface health so problems are seen.
+            from src.notify import notify
             from src.tools.health import check_all_health
             result = await check_all_health.ainvoke({})
-            logger.info("Scheduled daily cleanup/health: %s", result[:200])
-            return "Daily cleanup complete"
+            logger.info("Scheduled daily health report: %s", result[:200])
+            await notify("Media Agent: daily report", result[:2000])
+            return "Daily report complete"
 
         async def _weekly_scan():
             from src.tools.emby import emby_scan
@@ -89,19 +115,16 @@ def _run_server(host: str, port: int):
 
         sched.add_job("health_check", _health_check, "health_check")
         sched.add_job("missing_search", _missing_search, "missing_episodes")
-        sched.add_job("daily_cleanup", _daily_cleanup, "daily_cleanup")
+        sched.add_job("daily_cleanup", _daily_report, "daily_cleanup")
         sched.add_job("weekly_scan", _weekly_scan, "weekly_scan")
 
-        # Start scheduler — must be called from within the running event loop,
-        # not a separate thread (AsyncIOScheduler binds to the current loop)
-        @api_app.on_event("startup")
-        async def _start_scheduler():
-            sched.start()
+        # Start scheduler — must run inside the server's event loop, not a
+        # separate thread (AsyncIOScheduler binds to the current loop)
+        startup_hooks.append(sched.start)
+        shutdown_hooks.append(sched.stop)
 
         logger.info("Scheduler configured with %d default jobs", sched.job_count)
     except Exception as e:
-        import logging
-        logging.basicConfig(level=logging.WARNING)
         logging.warning(f"Scheduler not started: {e}")
 
     uvicorn.run(

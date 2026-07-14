@@ -104,8 +104,9 @@ llm:
   hosted_key: ""
   hosted_model: ""
   temperature: 0        # defaults to 0.2 — low temp keeps tool calls reliable
-  timeout: 15
-  num_ctx: 8192         # context window
+  timeout: 120          # per-request LLM timeout (seconds)
+  num_ctx: 16384        # context window — 70 tool schemas + prompt + history
+                        # overflow 8192 and Ollama truncates silently from the top
   num_predict: 1024     # generation cap
   keep_alive: "30m"     # keep model resident in VRAM between requests
   reasoning: false      # disable qwen3 thinking blocks (latency win)
@@ -205,13 +206,16 @@ The agent loops: LLM decides which tools to call → tools execute → results g
 
 **Runtime hardening.** All interfaces call `run_agent()` / `stream_agent()` instead of invoking the compiled graph directly. These helpers:
 
-- always pass a `thread_id` (mandatory with the MemorySaver checkpointer);
+- always pass a `thread_id` (mandatory — the graph has a checkpointer: SQLite
+  at `/state/agent_memory.db` so memory survives restarts, falling back to
+  in-process MemorySaver when the state volume is absent);
 - enforce `RECURSION_LIMIT = 16` on the ReAct loop and map `GraphRecursionError` to a friendly "break it into smaller pieces" message;
-- trim thread history to the last 40 messages (`_trim_history`, aligned to a HumanMessage boundary so tool calls are never orphaned) before every model call, so persistent threads never overflow `num_ctx`;
+- trim thread history to the last 20 messages (`_trim_history`, aligned to a HumanMessage boundary so tool calls are never orphaned) before every model call, and compact stored checkpoints past 120 messages down to 40, so persistent threads never overflow `num_ctx` or RAM;
 - drive the circuit breaker: two graphs are compiled against the same checkpointer — local-primary (with per-call hosted fallback) and hosted-primary — and `pick_agent()` selects one per request from the breaker state, so an OPEN breaker skips a dead Ollama's timeouts entirely;
-- never raise: LLM failures come back as friendly ❌ strings, and each failure/success updates the breaker.
+- never raise: LLM failures come back as friendly ❌ strings, and each failure/success updates the breaker (an `on_llm_error` callback attributes with_fallbacks rescues to the *local* model, so a dead Ollama still opens the breaker);
+- journal every LLM-path tool call to `/state/tool_audit.jsonl` (`src/audit.py`) — name, args, result, duration — so file renames and bulk downloads are traceable after the fact.
 
-Stateless OpenAI-API requests use a throwaway per-request thread that is deleted afterwards (`forget_thread`) so MemorySaver doesn't leak.
+Stateless OpenAI-API requests use a throwaway per-request agent thread that is deleted afterwards (`forget_thread`), plus a *stable* router thread keyed on the conversation's first user message so yes/no confirmations survive across requests. The dashboard gives each browser tab its own `dashboard-<session>` thread (reset via `POST /api/dashboard/reset`).
 
 ### 2.5 Tool Layer (`src/tools/` + `src/providers/`)
 
@@ -273,7 +277,7 @@ Providers handle content types that need **more than an API call** — they wrap
 
 | Module | Functions | Purpose |
 |---|---|---|
-| `scanner.py` | `build_inventory`, `cross_reference`, `find_orphans`, `find_duplicates` | Filesystem inventory + cross-reference against service DBs |
+| `scanner.py` | `build_inventory`, `find_duplicates` | Filesystem inventory + duplicate detection (size + content fingerprint) |
 | `naming.py` | `check_naming`, `fix_naming`, `undo_rename` | Enforce naming conventions with reversible renames + undo logs |
 
 Naming conventions:

@@ -55,7 +55,9 @@ def test_build_prompt_prepends_system():
     state = {"messages": _convo(2)}
     prompt = _build_prompt(state)
     assert isinstance(prompt[0], SystemMessage)
-    assert prompt[0].content == SYSTEM_PROMPT
+    # System prompt plus a date grounding line ("Today is ...").
+    assert prompt[0].content.startswith(SYSTEM_PROMPT)
+    assert "Today is" in prompt[0].content
     assert len(prompt) == 5
 
 
@@ -74,7 +76,9 @@ def test_extract_text_variants():
 
 def test_registry_imports_and_has_tools():
     from src.tools.registry import all_tools
-    assert len(all_tools) >= 40
+    # Exact count: a silently-dropped optional tool group must fail loudly.
+    # Update this (and the docs) when adding or removing tools.
+    assert len(all_tools) == 70
     names = [t.name for t in all_tools]
     assert len(names) == len(set(names)), "duplicate tool names confuse the LLM"
     for t in all_tools:

@@ -1284,7 +1284,9 @@ Album: Album Name
 
 ---
 
-### `bandcamp_download_collection() -> str`
+### `bandcamp_download_collection(confirm: bool = False) -> str`
+
+> ⏸️ **Confirmation gate:** with `confirm=False` (the default) this tool only previews what it would do. It performs the operation only when called again with `confirm=True`, after the user has approved. The deterministic router passes `confirm=True` automatically once its own yes/no step is answered.
 
 Download all purchased Bandcamp albums from your collection.
 Requires bandcamp-dl to be configured with your account credentials.
@@ -1356,7 +1358,9 @@ audible_download(asin="B00X4WHP5E")
 
 ---
 
-### `audible_download_new() -> str`
+### `audible_download_new(confirm: bool = False) -> str`
+
+> ⏸️ **Confirmation gate:** with `confirm=False` (the default) this tool only previews what it would do. It performs the operation only when called again with `confirm=True`, after the user has approved. The deterministic router passes `confirm=True` automatically once its own yes/no step is answered.
 
 Download audiobooks added to your library since the last sync.
 
@@ -1398,12 +1402,13 @@ audible_setup_auth()
 ⚠️ Audible authentication setup requires user interaction.
 
 To set up:
-1. Run: `audible quickstart --auth-file /config/audible/auth.json`
+1. Run: `audible quickstart --auth-file /state/audible/auth.json` (or the configured `services.audible.auth_dir`)
 2. You'll be prompted to open a URL in a browser
 3. Log in to Amazon and paste the redirect URL back
 4. Once complete, run `audible_check_auth` to verify
 
-The auth file will persist in /config/audible/ and survive container restarts.
+The auth file persists on the /state volume and survives container restarts
+(a legacy /config/audible/auth.json is still picked up if present).
 Auth tokens expire ~30 days — the agent will prompt you to re-authenticate.
 ```
 
@@ -1463,7 +1468,9 @@ Use `rom_download` with the identifier to download.
 
 ---
 
-### `rom_download(identifier: str, platform: str = "") -> str`
+### `rom_download(identifier: str, platform: str = "", confirm: bool = False) -> str`
+
+> ⏸️ **Confirmation gate:** with `confirm=False` (the default) this tool only previews what it would do. It performs the operation only when called again with `confirm=True`, after the user has approved. The deterministic router passes `confirm=True` automatically once its own yes/no step is answered.
 
 Download a ROM set from Internet Archive by identifier.
 Optionally specify platform to organize the download.
@@ -1486,7 +1493,7 @@ Downloading 20 file(s) from 'no-intro-snes-super-mario-world'...
   ✓ Super Mario World (USA).xml
   ...
 
-✅ Downloaded 20 files to /tmp/rom_downloads/snes
+✅ Downloaded 20 files to /media/roms/snes
 
 Run `rom_verify_dat` to verify checksums against No-Intro DATs.
 ```
@@ -1689,7 +1696,9 @@ Checked 320 file(s) against 'tv' convention:
 
 ---
 
-### `library_fix_naming(path: str, convention: str = "tv") -> str`
+### `library_fix_naming(path: str, convention: str = "tv", confirm: bool = False) -> str`
+
+> ⏸️ **Confirmation gate:** with `confirm=False` (the default) this tool only previews what it would do. It performs the operation only when called again with `confirm=True`, after the user has approved. The deterministic router passes `confirm=True` automatically once its own yes/no step is answered.
 
 Rename files to match naming conventions. Creates an undo log before renaming so the batch is reversible.
 

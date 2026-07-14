@@ -82,7 +82,9 @@ async def check_disk_space() -> str:
 
 @tool
 async def check_queue_status() -> str:
-    """Check download queues across all services."""
+    """Check download queues across ALL services at once (Sonarr, Radarr,
+    SABnzbd). Prefer this for general "what's downloading?" questions;
+    use the per-service queue tools only when asked about one service."""
     results = []
     settings = get_settings()
 

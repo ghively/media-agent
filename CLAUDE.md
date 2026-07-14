@@ -110,7 +110,7 @@ src/
 │   ├── audible.py       # 5 tools via audible-cli subprocess
 │   └── rom.py           # 4 tools via internetarchive subprocess
 ├── library/             # Library management
-│   ├── scanner.py       # Inventory, cross-reference, orphans, duplicates
+│   ├── scanner.py       # Inventory + duplicate detection
 │   ├── naming.py        # Naming convention check/fix + undo logs
 │   └── rom_analyzer.py  # ROM engine: header parsers (NES/SNES/GB/GBA/N64/NDS/Genesis/SMS/Lynx/...), CRC dedup, debug checks
 └── interfaces/
