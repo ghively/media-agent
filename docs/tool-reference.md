@@ -20,7 +20,11 @@ Complete reference for all 70 registered LangGraph tools in the media-agent proj
 | ROM Library | 4 | Header-level ROM identification, metadata, deduplication, and debugging |
 | Library | 5 | Filesystem inventory, duplicate detection, and naming convention management |
 
-**Total: 70 tools registered**
+**Total: 92 tools registered**
+
+> The 22 newest tools (podcasts, Twitch, Komga comics, Calibre ebooks,
+> Lidarr, Prowlarr, qBittorrent) are summarized in
+> [New integrations](#new-integrations) at the end of this file.
 
 ---
 
@@ -1803,3 +1807,81 @@ services:
 ---
 
 *Generated from media-agent source files. Last updated: 2026-07-12*
+
+---
+
+## New integrations
+
+Compact reference for the 22 tools added in the feature-wiring pass. All are
+optional: each answers with a clear "not configured" message until its
+service/config exists.
+
+### Podcasts (RSS — `src/providers/podcast.py`)
+
+| Tool | What it does |
+|---|---|
+| `podcast_subscribe(feed_url)` | Subscribe to a podcast RSS feed |
+| `podcast_unsubscribe(name)` | Remove a subscription (files stay on disk) |
+| `podcast_list_subscriptions()` | List subscriptions |
+| `podcast_check_new()` | Download new episodes (max 3/feed/run) to `services.podcasts.download_path` |
+
+State: `/state/podcast_subs.json`, `/state/podcast_downloaded.json`.
+
+### Twitch (`src/providers/twitch.py`, needs streamlink)
+
+| Tool | What it does |
+|---|---|
+| `twitch_check_live(channel)` | Is a channel live + available qualities |
+| `twitch_record(channel, quality="best")` | Start a background recording to `services.twitch.download_path`; returns immediately |
+| `twitch_recordings()` | Status/size of this session's recordings |
+
+### Comics — Komga (`src/tools/komga.py`)
+
+| Tool | What it does |
+|---|---|
+| `komga_search(query)` | Search series by name |
+| `komga_recent(limit=10)` | Recently added books |
+| `komga_scan()` | Rescan every Komga library |
+
+Config: `services.komga.url` + `api_key` (X-API-Key header).
+
+### Ebooks — Calibre (`src/tools/calibre.py`)
+
+| Tool | What it does |
+|---|---|
+| `calibre_search(query)` | Search (supports Calibre expressions like `author:Herbert`) |
+| `calibre_recent(limit=10)` | Recently added ebooks |
+
+Config: `services.calibre.url` (content server) + optional username/password.
+
+### Music — Lidarr (`src/tools/lidarr.py`)
+
+| Tool | What it does |
+|---|---|
+| `search_artist(query)` | Look up artists (returns artistId) |
+| `add_artist(foreign_artist_id, name)` | Monitor an artist + search albums |
+| `list_artists(page=1)` | Monitored artists, 30/page |
+| `get_music_queue()` | Lidarr's download queue |
+
+Config: `services.lidarr.url`, `api_key`, `quality_profile_id`, `metadata_profile_id`, `root_folder_path`.
+
+### Indexers — Prowlarr (`src/tools/prowlarr.py`)
+
+| Tool | What it does |
+|---|---|
+| `prowlarr_search(query)` | Unified search across all indexers, sorted by seeders |
+| `prowlarr_indexers()` | List configured indexers |
+
+Config: `services.prowlarr.url` + `api_key`.
+
+### Torrents — qBittorrent (`src/tools/qbittorrent.py`)
+
+| Tool | What it does |
+|---|---|
+| `qbittorrent_list()` | Torrents with progress/speeds |
+| `qbittorrent_add(url, category="")` | Add magnet/.torrent URL |
+| `qbittorrent_pause()` / `qbittorrent_resume()` | Pause/resume all |
+
+Config: `services.qbittorrent.url`, `username`, `password`. When configured,
+the router prefers qBittorrent over Download Station for magnet links and
+"list torrents".

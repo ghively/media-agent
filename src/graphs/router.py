@@ -82,6 +82,24 @@ def clear_pending(thread_id: str) -> None:
     _pending.pop(thread_id, None)
 
 
+def pending_suggestions(thread_id: str) -> list[str] | None:
+    """Quick-reply suggestions for a live pending confirmation on a thread.
+
+    Used by the dashboard to render tappable yes/no/pick buttons instead of
+    making the user type the reply. Returns None when nothing is pending.
+    """
+    pending = _pending.get(thread_id)
+    if pending is None or pending.expired:
+        return None
+    if pending.kind == "action":
+        return ["yes", "no"]
+    picks = [f"add #{i}" for i in range(1, len(pending.results) + 1)]
+    if pending.auto_add:
+        # "yes" already means the first result.
+        return ["yes"] + picks[1:] + ["no"]
+    return picks + ["no"]
+
+
 # ── text normalization ──────────────────────────────────────────────────────
 
 _PUNCT_RE = re.compile(r"[?!.]+$")
@@ -433,19 +451,30 @@ async def _try_url_intents(text: str, thread_id: str) -> str | None:
     torrent = _TORRENT_URL_RE.search(text)
     if magnet or torrent:
         url = (magnet or torrent).group(0)
+        # Prefer qBittorrent when configured; Download Station otherwise.
+        add_tool, client_name = None, ""
         try:
-            from src.tools.download_station import download_station_add
-        except ImportError:
-            return "❌ Download Station support isn't installed."
+            from src.config import get_settings
+            if get_settings().qbittorrent.get("url"):
+                from src.tools.qbittorrent import qbittorrent_add
+                add_tool, client_name = qbittorrent_add, "qBittorrent"
+        except Exception:
+            pass
+        if add_tool is None:
+            try:
+                from src.tools.download_station import download_station_add
+                add_tool, client_name = download_station_add, "Download Station"
+            except ImportError:
+                return "❌ No torrent client support is installed."
         if wants_download:
-            return await download_station_add.ainvoke({"url": url})
+            return await add_tool.ainvoke({"url": url})
 
         async def _do_torrent():
-            return await download_station_add.ainvoke({"url": url})
+            return await add_tool.ainvoke({"url": url})
 
         return _confirm_action(
             thread_id,
-            "That looks like a torrent — add it to Download Station? (yes/no)",
+            f"That looks like a torrent — add it to {client_name}? (yes/no)",
             _do_torrent,
         )
 
@@ -557,10 +586,18 @@ async def _h_history(match, thread_id):
 
 
 async def _h_torrents(match, thread_id):
+    # qBittorrent when configured, else Download Station.
+    try:
+        from src.config import get_settings
+        if get_settings().qbittorrent.get("url"):
+            from src.tools.qbittorrent import qbittorrent_list
+            return await qbittorrent_list.ainvoke({})
+    except Exception:
+        pass
     try:
         from src.tools.download_station import download_station_list
     except ImportError:
-        return "❌ Download Station support isn't installed."
+        return "❌ No torrent client support is installed."
     return await download_station_list.ainvoke({})
 
 
@@ -813,6 +850,99 @@ async def _h_audible_download(match, thread_id):
         return await audible_download.ainvoke({"asin": rest.upper()})
     # A title, not an ASIN — the LLM can look up the ASIN in the library.
     return None
+
+
+# ── Podcast handlers ─────────────────────────────────────────────────────────
+
+async def _h_podcast_list(match, thread_id):
+    from src.providers.podcast import podcast_list_subscriptions
+    return await podcast_list_subscriptions.ainvoke({})
+
+
+async def _h_podcast_check(match, thread_id):
+    from src.providers.podcast import podcast_check_new
+    return await podcast_check_new.ainvoke({})
+
+
+async def _h_podcast_subscribe(match, thread_id):
+    url = _ensure_scheme(match.group("url").strip(" \"'"))
+    from src.providers.podcast import podcast_subscribe
+    return await podcast_subscribe.ainvoke({"feed_url": url})
+
+
+async def _h_podcast_unsubscribe(match, thread_id):
+    from src.providers.podcast import podcast_unsubscribe
+    return await podcast_unsubscribe.ainvoke({"name": match.group("name").strip(" \"'")})
+
+
+# ── Twitch handlers ──────────────────────────────────────────────────────────
+
+async def _h_twitch_live(match, thread_id):
+    from src.providers.twitch import twitch_check_live
+    return await twitch_check_live.ainvoke({"channel": match.group("chan")})
+
+
+async def _h_twitch_record(match, thread_id):
+    from src.providers.twitch import twitch_record
+    return await twitch_record.ainvoke({"channel": match.group("chan")})
+
+
+async def _h_twitch_recordings(match, thread_id):
+    from src.providers.twitch import twitch_recordings
+    return await twitch_recordings.ainvoke({})
+
+
+# ── Comics / ebooks handlers ─────────────────────────────────────────────────
+
+async def _h_komga_search(match, thread_id):
+    query = match.group("query").strip(" \"'")
+    if not query or len(query) > 80:
+        return None
+    from src.tools.komga import komga_search
+    return await komga_search.ainvoke({"query": query})
+
+
+async def _h_komga_recent(match, thread_id):
+    from src.tools.komga import komga_recent
+    return await komga_recent.ainvoke({})
+
+
+async def _h_komga_scan(match, thread_id):
+    from src.tools.komga import komga_scan
+    return await komga_scan.ainvoke({})
+
+
+async def _h_calibre_search(match, thread_id):
+    query = match.group("query").strip(" \"'")
+    if not query or len(query) > 80:
+        return None
+    from src.tools.calibre import calibre_search
+    return await calibre_search.ainvoke({"query": query})
+
+
+async def _h_calibre_recent(match, thread_id):
+    from src.tools.calibre import calibre_recent
+    return await calibre_recent.ainvoke({})
+
+
+# ── Music (Lidarr) / indexers (Prowlarr) handlers ────────────────────────────
+
+async def _h_list_artists(match, thread_id):
+    from src.tools.lidarr import list_artists
+    return await list_artists.ainvoke({})
+
+
+async def _h_music_queue(match, thread_id):
+    from src.tools.lidarr import get_music_queue
+    return await get_music_queue.ainvoke({})
+
+
+async def _h_prowlarr_search(match, thread_id):
+    query = match.group("query").strip(" \"'")
+    if not query or len(query) > 80:
+        return None
+    from src.tools.prowlarr import prowlarr_search
+    return await prowlarr_search.ainvoke({"query": query})
 
 
 # ── Bandcamp handlers ────────────────────────────────────────────────────────
@@ -1123,6 +1253,72 @@ _INTENTS: list[tuple[str, list[re.Pattern], object]] = [
         r"^search (?:the )?(?:internet )?archive for (?P<query>.+)$",
         r"^(?:find|search for) (?P<query>.+?) roms?$",
     ), _h_rom_search),
+
+    # ── Podcasts (before the YouTube subscribe/unsubscribe catch-alls) ──
+    ("podcast_subscribe", _rx(
+        r"^(?:subscribe (?:me )?to|add) (?:the )?podcast (?P<url>\S+)$",
+        r"^podcast subscribe (?P<url>\S+)$",
+    ), _h_podcast_subscribe),
+    ("podcast_unsubscribe", _rx(
+        r"^unsubscribe (?:me )?from (?:the )?podcast (?P<name>.+)$",
+        r"^remove (?:the )?podcast (?P<name>.+)$",
+    ), _h_podcast_unsubscribe),
+    ("podcast_list", _rx(
+        r"^(?:list |show )?(?:my )?podcasts?(?: subscriptions?)?$",
+        r"^what podcasts (?:am i subscribed to|do i follow)$",
+    ), _h_podcast_list),
+    ("podcast_check", _rx(
+        r"^check (?:for )?(?:my )?(?:new )?podcasts?(?: episodes?)?$",
+        r"^(?:any |download )?new podcast episodes?$",
+        r"^sync podcasts$",
+    ), _h_podcast_check),
+
+    # ── Twitch ──
+    ("twitch_live", _rx(
+        r"^is (?P<chan>\w{3,30}) (?:live|streaming)(?: on twitch)?$",
+        r"^check if (?P<chan>\w{3,30}) is (?:live|streaming)$",
+    ), _h_twitch_live),
+    ("twitch_record", _rx(
+        r"^record (?P<chan>\w{3,30})(?:'s)? (?:twitch )?stream$",
+        r"^record (?:the )?twitch stream (?:of |from )?(?P<chan>\w{3,30})$",
+    ), _h_twitch_record),
+    ("twitch_recordings", _rx(
+        r"^(?:list |show |check )?(?:my )?(?:twitch )?recordings?(?: status)?$",
+    ), _h_twitch_recordings),
+
+    # ── Comics (Komga) & ebooks (Calibre) ──
+    ("komga_search", _rx(
+        r"^search (?:comics?|manga|komga) for (?P<query>.+)$",
+        r"^do i have (?:the )?(?:comic|manga) (?P<query>.+)$",
+    ), _h_komga_search),
+    ("komga_recent", _rx(
+        r"^(?:show |list |any )?(?:recent(?:ly)?|new) (?:added )?(?:comics?|manga)$",
+        r"^recent(?:ly added)? (?:comics?|manga)$",
+    ), _h_komga_recent),
+    ("komga_scan", _rx(
+        r"^(?:re)?scan (?:the |my )?(?:comics?|manga|komga)(?: library| libraries)?$",
+    ), _h_komga_scan),
+    ("calibre_search", _rx(
+        r"^search (?:ebooks?|calibre|books) for (?P<query>.+)$",
+        r"^do i have (?:the )?ebook (?P<query>.+)$",
+    ), _h_calibre_search),
+    ("calibre_recent", _rx(
+        r"^(?:show |list |any )?(?:recent(?:ly)?|new) (?:added )?ebooks?$",
+        r"^recent(?:ly added)? ebooks?$",
+    ), _h_calibre_recent),
+
+    # ── Music (Lidarr) & indexers (Prowlarr) ──
+    ("list_artists", _rx(
+        r"^(?:list|show)(?: me)?(?: all)?(?: of)?(?: my)? (?:music )?artists$",
+        r"^what artists (?:do i have|am i monitoring)$",
+    ), _h_list_artists),
+    ("music_queue", _rx(
+        r"^(?:music|lidarr) queue$",
+        r"^what music is downloading$",
+    ), _h_music_queue),
+    ("prowlarr_search", _rx(
+        r"^search (?:the )?(?:indexers?|prowlarr) for (?P<query>.+)$",
+    ), _h_prowlarr_search),
 
     # ── YouTube subscriptions (URL forms handled in the URL step) ──
     ("yt_list_subs", _rx(

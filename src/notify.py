@@ -5,9 +5,12 @@ they only reach the container log. When ``notifications.url`` is configured,
 :func:`notify` pushes them to a webhook; three payload shapes are supported
 via ``notifications.kind``:
 
-- ``ntfy``    — POST plain text to an ntfy topic URL (``Title`` header)
-- ``discord`` — POST ``{"content": ...}`` to a Discord webhook
-- ``generic`` — POST ``{"title": ..., "message": ...}`` JSON
+- ``ntfy``     — POST plain text to an ntfy topic URL (``Title`` header)
+- ``discord``  — POST ``{"content": ...}`` to a Discord webhook
+- ``generic``  — POST ``{"title": ..., "message": ...}`` JSON
+- ``telegram`` — send via the Telegram Bot API; uses ``notifications.chat_id``
+  plus ``notifications.bot_token`` (falls back to ``telegram.bot_token``),
+  no ``url`` needed
 
 Always best-effort: failures are logged and swallowed so a dead webhook can
 never break a scheduled job or a tool.
@@ -27,10 +30,28 @@ async def notify(title: str, message: str) -> bool:
         cfg = get_settings().notifications
     except Exception:
         return False
+    kind = (cfg.get("kind") or "ntfy").lower()
     url = cfg.get("url", "")
+
+    if kind == "telegram":
+        token = cfg.get("bot_token") or get_settings().telegram.get("bot_token", "")
+        chat_id = cfg.get("chat_id", "")
+        if not token or not chat_id:
+            return False
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    f"https://api.telegram.org/bot{token}/sendMessage",
+                    json={"chat_id": chat_id,
+                          "text": f"{title}\n\n{message}"[:4000]})
+                resp.raise_for_status()
+            return True
+        except Exception:
+            logger.warning("telegram notification failed", exc_info=True)
+            return False
+
     if not url:
         return False
-    kind = (cfg.get("kind") or "ntfy").lower()
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             if kind == "discord":

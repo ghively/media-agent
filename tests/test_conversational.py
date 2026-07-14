@@ -78,7 +78,7 @@ def test_registry_imports_and_has_tools():
     from src.tools.registry import all_tools
     # Exact count: a silently-dropped optional tool group must fail loudly.
     # Update this (and the docs) when adding or removing tools.
-    assert len(all_tools) == 70
+    assert len(all_tools) == 92
     names = [t.name for t in all_tools]
     assert len(names) == len(set(names)), "duplicate tool names confuse the LLM"
     for t in all_tools:

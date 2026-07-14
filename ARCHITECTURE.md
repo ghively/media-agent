@@ -22,7 +22,7 @@ Media Agent is a single Docker container running on **your-gpu-host** (NVIDIA RT
 │  │                                                              │   │
 │  │  ┌────────────┐  ┌──────────────┐  ┌──────────────────┐     │   │
 │  │  │  FastAPI    │  │  APScheduler │  │  LangGraph ReAct  │     │   │
-│  │  │  Server     │  │  (daemon     │  │  Agent (70 tools) │     │   │
+│  │  │  Server     │  │  (daemon     │  │  Agent (92 tools) │     │   │
 │  │  │  :8088      │  │   thread)    │  │                   │     │   │
 │  │  │             │  │              │  │  ┌─────────────┐ │     │   │
 │  │  │ • /v1/chat  │  │ • health 30m │  │  │   Qwen 3.5   │ │     │   │
@@ -105,7 +105,7 @@ llm:
   hosted_model: ""
   temperature: 0        # defaults to 0.2 — low temp keeps tool calls reliable
   timeout: 120          # per-request LLM timeout (seconds)
-  num_ctx: 16384        # context window — 70 tool schemas + prompt + history
+  num_ctx: 16384        # context window — 92 tool schemas + prompt + history
                         # overflow 8192 and Ollama truncates silently from the top
   num_predict: 1024     # generation cap
   keep_alive: "30m"     # keep model resident in VRAM between requests
@@ -272,6 +272,13 @@ Providers handle content types that need **more than an API call** — they wrap
 | `bandcamp.py` | 2 | bandcamp-downloader (subprocess) | Direct download |
 | `audible.py` | 5 | audible-cli (subprocess) | Authenticated extraction |
 | `rom.py` | 4 | internetarchive (subprocess) | Direct download + DAT verify |
+| `podcast.py` | 4 | httpx (RSS) | Subscriptions + episode downloads |
+| `twitch.py` | 3 | streamlink (subprocess) | Live checks + background stream recording |
+| `komga.py` | 3 | Komga API | Comic search/recent/scan |
+| `calibre.py` | 2 | Calibre content server | Ebook search/recent |
+| `lidarr.py` | 4 | Lidarr API | Artist search/add/list + music queue |
+| `prowlarr.py` | 2 | Prowlarr API | Unified indexer search |
+| `qbittorrent.py` | 4 | qBittorrent Web API | Torrent list/add/pause/resume |
 
 ### 2.7 Library Management (`src/library/`)
 
@@ -489,7 +496,7 @@ All API keys in **password manager **, injected via `.env` → Docker `env_file`
 
 ### Why `create_react_agent` instead of custom StateGraph
 
-The ReAct loop handles the tool-call cycle automatically. For a tool-heavy agent with 70 tools, this is simpler and more reliable than hand-wiring a custom graph. The system prompt constrains behavior sufficiently.
+The ReAct loop handles the tool-call cycle automatically. For a tool-heavy agent with 92 tools, this is simpler and more reliable than hand-wiring a custom graph. The system prompt constrains behavior sufficiently.
 
 ### Why strings instead of structured returns
 

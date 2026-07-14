@@ -18,6 +18,14 @@ code at the referenced location.
 > typed yes/no still, but a "New conversation" reset button was added),
 > pagination params (#6 — output caps added instead), and the roadmap
 > items in #9. Line numbers in the findings refer to the pre-fix tree.
+>
+> **Feature pass (same day, follow-up):** #4 and #6 closed too —
+> confirmation quick-reply buttons and `page=` params shipped. The roadmap
+> items landed: Telegram interface, podcast/Twitch/Komga/Calibre providers,
+> and Lidarr/Prowlarr/qBittorrent tools (agent-side; the services still
+> need deploying). **C1 was superseded by owner decision:** the dashboard
+> routes are now intentionally unauthenticated (loopback bind + trusted
+> LAN); the `/v1` API keeps Bearer auth. Tool count is now 92.
 
 ### Verdict in one paragraph
 

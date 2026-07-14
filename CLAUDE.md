@@ -58,7 +58,7 @@ Deterministic router (src/graphs/router.py)   ← tried FIRST, no LLM
     │ bulk/irreversible ops (ROM sets, renames, collection sync) confirm first
     │ handled? → tool call(s) → instant reply (recorded into agent memory)
     │ no match ▼
-LangGraph create_react_agent(llm, 70 tools)   via run_agent()/stream_agent()
+LangGraph create_react_agent(llm, 92 tools)   via run_agent()/stream_agent()
     │
     ├── LLM decides which tools to call
     ├── Tools execute (async, parallel when possible)
@@ -102,13 +102,20 @@ src/
     │   ├── download_station.py # 6 tools: list, add, pause, resume, info, stats
     │   ├── search.py        # 2 tools: search_media (unified), download_media
     │   ├── library_tools.py # 5 tools: library_build_inventory, library_find_duplicates, library_check_naming, library_fix_naming, library_undo_rename
-    │   └── rom_tools.py     # 4 tools: rom_scan_library, rom_inspect, rom_find_duplicates, rom_check_problems
+    │   ├── rom_tools.py     # 4 tools: rom_scan_library, rom_inspect, rom_find_duplicates, rom_check_problems
+    │   ├── komga.py         # 3 tools: comics search, recent, scan
+    │   ├── calibre.py       # 2 tools: ebook search, recent
+    │   ├── lidarr.py        # 4 tools: artist search/add/list, music queue
+    │   ├── prowlarr.py      # 2 tools: unified indexer search, indexer list
+    │   └── qbittorrent.py   # 4 tools: list, add, pause, resume
 ├── providers/           # Content-specific providers (subprocess-backed)
 │   ├── base.py          # MediaProvider protocol
 │   ├── youtube.py       # 6 tools via yt-dlp subprocess
 │   ├── bandcamp.py      # 2 tools via bandcamp-downloader subprocess
 │   ├── audible.py       # 5 tools via audible-cli subprocess
-│   └── rom.py           # 4 tools via internetarchive subprocess
+│   ├── rom.py           # 4 tools via internetarchive subprocess
+│   ├── podcast.py       # 4 tools: RSS subscriptions + episode downloads (httpx)
+│   └── twitch.py        # 3 tools via streamlink subprocess
 ├── library/             # Library management
 │   ├── scanner.py       # Inventory + duplicate detection
 │   ├── naming.py        # Naming convention check/fix + undo logs
@@ -116,6 +123,7 @@ src/
 └── interfaces/
     ├── cli.py           # Interactive REPL + one-shot + health
     ├── openai_api.py    # FastAPI: /v1/chat/completions + /v1/models + /health
+    ├── telegram_bot.py  # Telegram long-polling bot (chat-id allowlist)
     └── dashboard.py     # Web dashboard HTML (mounted on FastAPI app)
 ```
 
@@ -291,17 +299,17 @@ This agent is part of a larger homelab:
 
 ## What's Next (Roadmap)
 
-| Priority | Feature | Effort |
+| Priority | Feature | Status |
 |---|---|---|
-| **High** | Telegram bot interface (needs bot token from a bot) | Small — `python-telegram-bot` already installed |
-| **High** | Prowlarr + qBittorrent deploy on NAS (enables full unified search) | Medium — Docker deploy on your-nas |
-| **Medium** | Lidarr deploy (music management) | Small — Docker deploy |
-| **Medium** | Automated tests — router + agent core covered in `tests/`; extend to tool modules | Medium |
-| **Medium** | NFS mount into container (enables library scanner on real files) | Small — DSM config + compose volume |
-| **Low** | Podcast provider (RSS) | Small — new provider |
-| **Low** | Twitch provider (streamlink) | Small — new provider |
-| **Low** | Comic provider (Komga API) | Small — new provider |
-| **Low** | Ebook provider (Calibre API) | Small — new provider |
+| ~~High~~ | Telegram bot interface | ✅ Done — set `telegram.bot_token` + `allowed_chat_ids` |
+| **High** | Prowlarr + qBittorrent deploy on NAS | Agent side ✅ wired (`services.prowlarr`/`qbittorrent`); NAS deploy pending |
+| **Medium** | Lidarr deploy (music management) | Agent side ✅ wired (`services.lidarr`); NAS deploy pending |
+| ~~Medium~~ | Automated tests | ✅ 214 tests: router, agent core, providers, tool gates |
+| **Medium** | NFS mount into container | Compose `MEDIA_ROOT` ✅ — point it at the NAS mount |
+| ~~Low~~ | Podcast provider (RSS) | ✅ Done |
+| ~~Low~~ | Twitch provider (streamlink) | ✅ Done |
+| ~~Low~~ | Comic provider (Komga API) | ✅ Done — set `services.komga` |
+| ~~Low~~ | Ebook provider (Calibre API) | ✅ Done — set `services.calibre` |
 
 ---
 

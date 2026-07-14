@@ -7,6 +7,9 @@ export default function ChatPanel({ initialQuery }) {
   const [messages, setMessages] = useState([GREETING])
   const [input, setInput] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
+  // Quick replies (yes/no/pick buttons) offered when a confirmation is
+  // pending after the last agent message.
+  const [suggestions, setSuggestions] = useState([])
   const messagesEndRef = useRef(null)
   const textareaRef = useRef(null)
   const currentAssistantMessageRef = useRef(null)
@@ -27,6 +30,7 @@ export default function ChatPanel({ initialQuery }) {
 
     isGeneratingRef.current = true
     setIsGenerating(true)
+    setSuggestions([])
     setMessages(prev => [...prev, { role: 'user', content: userMessage }, { role: 'assistant', content: '' }])
     currentAssistantMessageRef.current = ''
 
@@ -51,19 +55,16 @@ export default function ChatPanel({ initialQuery }) {
           currentAssistantMessageRef.current += token
           setLastAssistant(currentAssistantMessageRef.current)
         },
-        onDone: (fullResponse) => {
+        onDone: (fullResponse, suggested) => {
           // If nothing streamed (e.g. only tool calls), fall back to the final text.
           if (!currentAssistantMessageRef.current && fullResponse) {
             setLastAssistant(fullResponse)
           }
+          if (suggested && suggested.length) setSuggestions(suggested.slice(0, 7))
           finish()
         },
         onError: (error) => {
           setLastAssistant(`❌ Error: ${error}`)
-          finish()
-        },
-        onAuthRequired: () => {
-          setLastAssistant('🔑 This server requires an API key — set it from the banner on the Overview tab, then try again.')
           finish()
         },
       })
@@ -128,6 +129,19 @@ export default function ChatPanel({ initialQuery }) {
             </div>
           </div>
         ))}
+        {!isGenerating && suggestions.length > 0 && (
+          <div className="flex flex-wrap gap-2 justify-start pl-1">
+            {suggestions.map((s) => (
+              <button
+                key={s}
+                onClick={() => { setSuggestions([]); send(s) }}
+                className="px-3 py-1.5 rounded-full text-sm border border-accent-blue/50 text-accent-blue hover:bg-accent-blue/10 active:scale-95 transition-all touch-manipulation"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
         {isGenerating && !currentAssistantMessageRef.current && (
           <div className="flex justify-start">
             <div className="bg-dark-700 rounded-2xl rounded-bl-md px-4 py-3 border border-dark-500/60">

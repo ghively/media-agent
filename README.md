@@ -1,6 +1,6 @@
 # Media Agent
 
-A containerized, conversational AI agent for managing a personal media ecosystem — TV shows, movies, music, audiobooks, YouTube content, and classic game ROMs. Powered by a local LLM (qwen3.5:9b via Ollama) with **70 tools** across 12 categories.
+A containerized, conversational AI agent for managing a personal media ecosystem — TV shows, movies, music, audiobooks, YouTube content, and classic game ROMs. Powered by a local LLM (qwen3.5:9b via Ollama) with **92 tools** across 19 categories — TV, movies, music (Bandcamp + Lidarr), audiobooks, podcasts, YouTube, Twitch, comics, ebooks, ROMs, torrents, usenet, and more.
 
 Ask it things like *"what's new on my server?"*, *"add The Matrix in 1080p"*, or *"what's downloading?"* — it searches, adds, monitors, and scans your library automatically.
 
@@ -184,7 +184,7 @@ This works with any OpenAI-compatible client (Open WebUI, SillyTavern, etc.).
 User Input (CLI / API / Dashboard)
     │
     ▼
-LangGraph ReAct Agent (LLM + 70 tools)
+LangGraph ReAct Agent (LLM + 92 tools)
     │
     ├── Sonarr tools (12)   → TV show management
     ├── Radarr tools (10)   → Movie management
@@ -204,7 +204,7 @@ LangGraph ReAct Agent (LLM + 70 tools)
 Your media services (Sonarr, Radarr, Emby, SABnzbd...)
 ```
 
-The agent uses **LangGraph's `create_react_agent`** — the LLM (qwen3.5:9b via local Ollama) decides which tools to call, executes them, sees results, and loops until it can answer. All 70 tools are registered in a single registry and available simultaneously.
+The agent uses **LangGraph's `create_react_agent`** — the LLM (qwen3.5:9b via local Ollama) decides which tools to call, executes them, sees results, and loops until it can answer. All 92 tools are registered in a single registry and available simultaneously.
 
 **Key design points:**
 - **Local-first:** Uses local Ollama for all inference. Zero API costs. Optional cloud LLM fallback.
@@ -223,7 +223,7 @@ Detailed instructions for deploying in a new environment are in:
 | [CLAUDE.md](CLAUDE.md) | AI context file — read this first when working on the codebase |
 | [docs/deployment-guide.md](docs/deployment-guide.md) | Full deployment walkthrough for first-time setup |
 | [docs/development-guide.md](docs/development-guide.md) | How to add new tools, providers, or integrations |
-| [docs/tool-reference.md](docs/tool-reference.md) | Complete reference for all 70 tools |
+| [docs/tool-reference.md](docs/tool-reference.md) | Complete reference for all 92 tools |
 | [docs/api-reference.md](docs/api-reference.md) | OpenAI-compatible API documentation |
 
 ### For Hermes / Claude / Cursor agents
@@ -242,7 +242,7 @@ If you're an AI agent being asked to deploy this, start with `CLAUDE.md` — it 
 
 ---
 
-## Capabilities (70 Tools)
+## Capabilities (92 Tools)
 
 | Category | Tools | What you can ask |
 |---|---|---|

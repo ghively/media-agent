@@ -18,12 +18,11 @@ import re
 import time
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, Header, Request
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from src.config import get_settings
-from src.interfaces.openai_api import _check_auth
 
 _SESSION_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 
@@ -75,19 +74,19 @@ def _register_routes(app: FastAPI) -> None:
                 return HTMLResponse(content=f.read())
         return HTMLResponse(content=_DASHBOARD_HTML)
 
+    # NOTE: the dashboard routes are deliberately unauthenticated (owner's
+    # choice) — the container binds to loopback only, so exposure beyond the
+    # box must go through a VPN or an authenticating reverse proxy. The
+    # OpenAI-compatible /v1 routes still require MEDIA_AGENT_API_KEY.
+
     @app.get("/api/dashboard/data", include_in_schema=False)
-    async def dashboard_data(authorization: str | None = Header(None)):
-        # Requires the configured API key when one is set; open otherwise.
-        # These routes drive the full agent, so gate them behind the same
-        # credential as the OpenAI-compatible API.
-        _check_auth(authorization)
+    async def dashboard_data():
         data = await _gather_all_data_cached()
         return JSONResponse(data)
 
     @app.post("/api/dashboard/reset", include_in_schema=False)
-    async def dashboard_reset(req: ResetRequest, authorization: str | None = Header(None)):
+    async def dashboard_reset(req: ResetRequest):
         """Drop a conversation thread's memory and pending confirmations."""
-        _check_auth(authorization)
         from src.graphs.conversational import forget_thread
         from src.graphs.router import clear_pending
 
@@ -97,7 +96,7 @@ def _register_routes(app: FastAPI) -> None:
         return JSONResponse({"status": "ok"})
 
     @app.post("/api/dashboard/chat", include_in_schema=False)
-    async def dashboard_chat(req: ChatRequest, authorization: str | None = Header(None)):
+    async def dashboard_chat(req: ChatRequest):
         """Chat endpoint for the dashboard. Streams response as SSE.
 
         Each frontend session gets its own thread_id, so two open tabs don't
@@ -105,14 +104,22 @@ def _register_routes(app: FastAPI) -> None:
         Within a session, history persists via the agent's checkpointer so
         follow-ups like "add the first one" keep their context.
         """
-        _check_auth(authorization)
         import json as _json
 
         thread_id = _thread_for(req.session_id)
 
         async def _events():
             from src.graphs.conversational import record_exchange, stream_agent
-            from src.graphs.router import try_route
+            from src.graphs.router import pending_suggestions, try_route
+
+            def _final(full: str) -> str:
+                # The final event carries quick-reply suggestions when the
+                # router left a confirmation pending (yes/no/pick buttons).
+                payload = {"content": "", "done": True, "full": full}
+                suggestions = pending_suggestions(thread_id)
+                if suggestions:
+                    payload["suggest"] = suggestions
+                return f"data: {_json.dumps(payload)}\n\n"
 
             try:
                 # Deterministic fast path first — instant, no LLM round-trip.
@@ -120,7 +127,7 @@ def _register_routes(app: FastAPI) -> None:
                 if routed is not None:
                     await record_exchange(thread_id, req.message, routed)
                     yield f"data: {_json.dumps({'content': routed, 'done': False})}\n\n"
-                    yield f"data: {_json.dumps({'content': '', 'done': True, 'full': routed})}\n\n"
+                    yield _final(routed)
                     return
 
                 collected = []
@@ -128,8 +135,7 @@ def _register_routes(app: FastAPI) -> None:
                     collected.append(text)
                     yield f"data: {_json.dumps({'content': text, 'done': False})}\n\n"
 
-                full = "".join(collected) or "No response."
-                yield f"data: {_json.dumps({'content': '', 'done': True, 'full': full})}\n\n"
+                yield _final("".join(collected) or "No response.")
             except Exception as e:
                 yield f"data: {_json.dumps({'content': '', 'done': True, 'error': f'❌ {type(e).__name__}: {e}'})}\n\n"
 
@@ -913,34 +919,6 @@ const SESSION_ID = (crypto.randomUUID
   ? crypto.randomUUID().replace(/-/g, "")
   : "s" + Date.now() + Math.floor(Math.random() * 1e9));
 
-// API key support: stored in localStorage, sent as a Bearer token. A 401
-// prompts once for the key and retries.
-function apiKey() {
-  try { return localStorage.getItem("media-agent-api-key") || ""; } catch (_) { return ""; }
-}
-
-function authHeaders(extra) {
-  const h = extra || {};
-  const key = apiKey();
-  if (key) h["Authorization"] = "Bearer " + key;
-  return h;
-}
-
-async function authedFetch(url, options) {
-  options = options || {};
-  options.headers = authHeaders(options.headers);
-  let resp = await fetch(url, options);
-  if (resp.status === 401) {
-    const key = prompt("This server requires an API key (MEDIA_AGENT_API_KEY):");
-    if (key) {
-      try { localStorage.setItem("media-agent-api-key", key.trim()); } catch (_) {}
-      options.headers = authHeaders(options.headers);
-      resp = await fetch(url, options);
-    }
-  }
-  return resp;
-}
-
 function esc(text) {
   const d = document.createElement("div");
   d.textContent = text || "";
@@ -1060,7 +1038,7 @@ async function fetchData() {
   const dot = document.getElementById("refresh-dot");
   dot.className = "refresh-dot fetching";
   try {
-    const resp = await authedFetch("/api/dashboard/data");
+    const resp = await fetch("/api/dashboard/data");
     if (!resp.ok) throw new Error("HTTP " + resp.status);
     const data = await resp.json();
     renderData(data);
@@ -1100,7 +1078,7 @@ async function sendChat() {
   msgs.scrollTop = msgs.scrollHeight;
 
   try {
-    const resp = await authedFetch("/api/dashboard/chat", {
+    const resp = await fetch("/api/dashboard/chat", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({message: msg, session_id: SESSION_ID}),

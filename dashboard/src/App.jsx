@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { fetchData, getApiKey, setApiKey, AuthRequiredError } from './api/client'
+import { fetchData } from './api/client'
 import ServiceCards from './components/ServiceCards'
 import ContentProviders from './components/ContentProviders'
 import ActivityFeed from './components/ActivityFeed'
@@ -16,30 +16,15 @@ export default function App() {
   // A quick-action sends a query into the chat: {text, id}. The id changes
   // on every click so ChatPanel re-fires even when the text repeats.
   const [pendingQuery, setPendingQuery] = useState(null)
-  // 401 from the API → the server has an API key configured; ask for it.
-  const [needsKey, setNeedsKey] = useState(false)
-  const [keyInput, setKeyInput] = useState('')
 
   const fetchDashboardData = async () => {
     try {
       const result = await fetchData()
       setData(result)
       setLastUpdated(new Date())
-      setNeedsKey(false)
     } catch (err) {
-      if (err instanceof AuthRequiredError) {
-        setNeedsKey(true)
-        return
-      }
       console.error('Failed to fetch dashboard data:', err)
     }
-  }
-
-  const saveKey = async (e) => {
-    e?.preventDefault?.()
-    setApiKey(keyInput.trim())
-    setKeyInput('')
-    await fetchDashboardData()
   }
 
   useEffect(() => {
@@ -131,28 +116,6 @@ export default function App() {
           </nav>
         </div>
       </div>
-
-      {/* API key gate — shown when the server rejects requests with 401 */}
-      {needsKey && (
-        <div className="shrink-0 bg-accent-yellow/10 border-b border-accent-yellow/40">
-          <form onSubmit={saveKey} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center gap-2">
-            <span className="text-sm text-dark-200">
-              🔑 This server requires an API key (<code>MEDIA_AGENT_API_KEY</code>).
-              {getApiKey() ? ' The saved key was rejected — enter a new one.' : ''}
-            </span>
-            <input
-              type="password"
-              value={keyInput}
-              onChange={(e) => setKeyInput(e.target.value)}
-              placeholder="Paste API key"
-              className="flex-1 min-w-[200px] bg-dark-600 text-dark-100 placeholder-dark-500 rounded-lg px-3 py-1.5 text-sm border border-dark-500/60 focus:outline-none focus:ring-2 focus:ring-accent-blue/50"
-            />
-            <button type="submit" disabled={!keyInput.trim()} className="btn btn-primary px-4 py-1.5 text-sm">
-              Save
-            </button>
-          </form>
-        </div>
-      )}
 
       {/* Main content — the only scroll container (overview scrolls; chat manages its own) */}
       <main className={`flex-1 min-h-0 overscroll-contain ${activeTab === 'chat' ? 'overflow-hidden' : 'overflow-y-auto'}`}>

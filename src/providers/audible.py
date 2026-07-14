@@ -42,9 +42,9 @@ def _download_dir() -> Path:
 
 
 @tool
-async def audible_list_library() -> str:
-    """List all audiobooks in your Audible library, with the ASIN codes
-    needed by audible_download."""
+async def audible_list_library(page: int = 1) -> str:
+    """List audiobooks in your Audible library (30 per page, with the ASIN
+    codes needed by audible_download). Pass page=2 for the next 30."""
     try:
         auth_file = _auth_file()
         if not auth_file.exists():
@@ -65,15 +65,20 @@ async def audible_list_library() -> str:
         if not books:
             return "Your Audible library is empty."
 
-        lines = [f"Audible library ({len(books)} books):\n"]
-        for book in books[:30]:
+        page = max(1, page)
+        shown = books[(page - 1) * 30:page * 30]
+        if not shown:
+            return f"No audiobooks on page {page} — the library has {len(books)} book(s)."
+        lines = [f"Audible library ({len(books)} books, page {page}):\n"]
+        for book in shown:
             title = book.get("title", "Unknown")
             author = book.get("authors", [{}])[0].get("name", "Unknown")
             duration = book.get("runtime_length_min", "?")
             asin = book.get("asin", "?")
             lines.append(f"  • {title} by {author} ({duration} min) [ASIN: {asin}]")
-        if len(books) > 30:
-            lines.append(f"\n  ... and {len(books) - 30} more")
+        remaining = len(books) - page * 30
+        if remaining > 0:
+            lines.append(f"\n  ... {remaining} more — ask for page {page + 1}")
         return "\n".join(lines)
 
     except FileNotFoundError:

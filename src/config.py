@@ -90,6 +90,38 @@ class Settings:
         return self._data.get("services", {}).get("roms", {})
 
     @property
+    def podcasts(self) -> dict:
+        return self._data.get("services", {}).get("podcasts", {})
+
+    @property
+    def twitch(self) -> dict:
+        return self._data.get("services", {}).get("twitch", {})
+
+    @property
+    def komga(self) -> dict:
+        return self._data.get("services", {}).get("komga", {})
+
+    @property
+    def calibre(self) -> dict:
+        return self._data.get("services", {}).get("calibre", {})
+
+    @property
+    def lidarr(self) -> dict:
+        return self._data.get("services", {}).get("lidarr", {})
+
+    @property
+    def prowlarr(self) -> dict:
+        return self._data.get("services", {}).get("prowlarr", {})
+
+    @property
+    def qbittorrent(self) -> dict:
+        return self._data.get("services", {}).get("qbittorrent", {})
+
+    @property
+    def telegram(self) -> dict:
+        return self._data.get("telegram", {})
+
+    @property
     def library(self) -> dict:
         return self._data.get("library", {})
 
@@ -120,8 +152,9 @@ class Settings:
                 "are empty (DS_USERNAME / DS_PASSWORD)")
         if not self.server.get("api_key"):
             warnings.append(
-                "server.api_key is empty — the API and dashboard run WITHOUT "
-                "authentication (safe only behind the loopback port bind)")
+                "server.api_key is empty — the /v1 API runs WITHOUT "
+                "authentication (the dashboard is always open by design; "
+                "both are safe only behind the loopback port bind)")
         return warnings
 
 
