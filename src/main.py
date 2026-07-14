@@ -121,10 +121,28 @@ def _run_server(host: str, port: int):
             logger.info("Scheduled weekly library scan: %s", result[:200])
             return "Weekly scan triggered"
 
+        async def _availability_check():
+            # Requesters get a Telegram push the moment their approved
+            # request actually lands in Emby (the seerr "available" event).
+            from src.tools.requests_tools import check_availability
+            result = await check_availability()
+            logger.info("Scheduled availability check: %s", result[:200])
+            return result
+
+        async def _cleanup_sweep():
+            # Quarantine-before-delete: only items whose grace period has
+            # fully elapsed are acted on; unreachable services = skip.
+            from src.tools.cleanup_tools import run_sweep
+            result = await run_sweep()
+            logger.info("Scheduled cleanup sweep: %s", result[:200])
+            return result
+
         sched.add_job("health_check", _health_check, "health_check")
         sched.add_job("missing_search", _missing_search, "missing_episodes")
         sched.add_job("daily_cleanup", _daily_report, "daily_cleanup")
         sched.add_job("weekly_scan", _weekly_scan, "weekly_scan")
+        sched.add_job("availability_check", _availability_check, "availability_check")
+        sched.add_job("cleanup_sweep", _cleanup_sweep, "cleanup_sweep")
 
         # Start scheduler — must run inside the server's event loop, not a
         # separate thread (AsyncIOScheduler binds to the current loop)

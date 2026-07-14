@@ -115,7 +115,7 @@ curl http://localhost:8088/health
 
 # Tool count
 docker exec media-agent python -c "from src.tools.registry import all_tools; print(f'{len(all_tools)} tools')"
-# → 70 tools
+# → 102 tools
 
 # Dashboard
 # Open http://localhost:8088/dashboard in a browser

@@ -29,6 +29,21 @@ class SonarrClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def _put(self, endpoint: str, json_data: dict):
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.put(
+                f"{self.base_url}/api/v3{endpoint}", headers=self.headers, json=json_data
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    async def _delete(self, endpoint: str, params: dict | None = None):
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.delete(
+                f"{self.base_url}/api/v3{endpoint}", headers=self.headers, params=params
+            )
+            resp.raise_for_status()
+
 
 def _client() -> SonarrClient:
     s = get_settings().sonarr
@@ -58,21 +73,45 @@ async def search_tv(query: str) -> str:
 
 
 @tool
-async def add_tv_show(tvdb_id: int, title: str) -> str:
-    """Add a TV show to the monitored library by its TVDB ID."""
+async def add_tv_show(tvdb_id: int, title: str, season: int = 0,
+                      quality_profile_id: int = 0, root_folder: str = "") -> str:
+    """Add a TV show to the monitored library by its TVDB ID.
+    Pass season=N to monitor and download ONLY that season (season-level
+    requests); season=0 (default) monitors the whole series. Optional
+    quality_profile_id / root_folder override the configured defaults."""
     try:
         settings = get_settings().sonarr
         body = {
             "tvdbId": tvdb_id,
             "title": title,
-            "qualityProfileId": settings.get("quality_profile_id", 4),
-            "rootFolderPath": settings.get("root_folder_path", "/your/media/tv"),
+            "qualityProfileId": quality_profile_id or settings.get("quality_profile_id", 4),
+            "rootFolderPath": root_folder or settings.get("root_folder_path", "/your/media/tv"),
             "monitored": True,
             "addOptions": {"searchForMissingEpisodes": True},
             "seriesType": "standard",
         }
+        scope = ""
+        if season > 0:
+            # Season-scoped add: Sonarr monitors exactly the seasons flagged
+            # here, and searchForMissingEpisodes only searches monitored ones.
+            # The season list comes from lookup; if it can't be fetched the
+            # add proceeds whole-series rather than failing the request.
+            try:
+                results = await _client()._get(
+                    "/series/lookup", params={"term": f"tvdb:{tvdb_id}"})
+                seasons = (results[0].get("seasons") or []) if results else []
+                if seasons:
+                    # No addOptions.monitor key: when it's absent Sonarr
+                    # respects these per-season flags (Overseerr does the same).
+                    body["seasons"] = [
+                        {"seasonNumber": s.get("seasonNumber"),
+                         "monitored": s.get("seasonNumber") == season}
+                        for s in seasons]
+                    scope = f" (season {season} only)"
+            except Exception:
+                pass
         await _client()._post("/series", body)
-        return f"✅ Added '{title}' (tvdbId: {tvdb_id}) to Sonarr. Episode search started — Emby will update automatically when episodes import."
+        return f"✅ Added '{title}'{scope} (tvdbId: {tvdb_id}) to Sonarr. Episode search started — Emby will update automatically when episodes import."
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 400:
             return f"❌ '{title}' may already be in your library, or the tvdbId is invalid."

@@ -41,6 +41,9 @@ def test_settings(tmp_path_factory):
     cfg = tmp_path_factory.mktemp("config") / "settings.yaml"
     cfg.write_text(_TEST_CONFIG)
     os.environ["MEDIA_AGENT_CONFIG"] = str(cfg)
+    # Point the persistent store (requests/quarantine/rules DB, audit log)
+    # at a tmp dir so tests never touch /state.
+    os.environ["MEDIA_AGENT_STATE_DIR"] = str(tmp_path_factory.mktemp("state"))
     yield
 
 

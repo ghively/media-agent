@@ -22,7 +22,7 @@ Media Agent is a single Docker container running on **your-gpu-host** (NVIDIA RT
 │  │                                                              │   │
 │  │  ┌────────────┐  ┌──────────────┐  ┌──────────────────┐     │   │
 │  │  │  FastAPI    │  │  APScheduler │  │  LangGraph ReAct  │     │   │
-│  │  │  Server     │  │  (daemon     │  │  Agent (92 tools) │     │   │
+│  │  │  Server     │  │  (daemon     │  │  Agent (102 tools) │     │   │
 │  │  │  :8088      │  │   thread)    │  │                   │     │   │
 │  │  │             │  │              │  │  ┌─────────────┐ │     │   │
 │  │  │ • /v1/chat  │  │ • health 30m │  │  │   Qwen 3.5   │ │     │   │
@@ -332,6 +332,38 @@ Data endpoint: `GET /api/dashboard/data` returns JSON.
 
 Interactive REPL using `rich` for formatted output. Three entry points: `cli_repl()`, `cli_one_shot(query)`, `cli_health()`.
 
+### 2.x Requests & Cleanup subsystem
+
+Persistent state in one aiosqlite DB on the state volume (`src/store.py`:
+`requests`, `quarantine`, `rules` tables).
+
+**Request loop (seerr pattern):** with `users.admins` configured, non-admin
+Telegram chats become *requesters* — their "add X" (router path) records a
+pending request instead of adding directly, subject to a rolling quota
+(`users.request_limit`, per-chat overrides). Admins get a push
+(`notify_admins`) and decide with "approve #N" / "deny #N". Approval runs
+the Sonarr/Radarr add (season-scoped when requested, e.g. "add Severance
+season 2"); the 20-minute `availability_check` scheduler job diffs approved
+requests against Emby and pushes "ready to watch" to the requester
+(`notify_chat`). Non-admin chats never reach the LLM agent — its toolset
+includes direct add/delete tools that would bypass the gate.
+
+**Auto-approve rules (stored in `rules`, evaluated in
+`src/engine/rules.py`):** "auto-approve requests from alice",
+"auto-approve anything under 3 seasons", "always send anime to
+/media/anime" — conditions AND-match on requester/type/season count/
+year/genre; actions auto-approve and override quality profile/root folder.
+
+**Cleanup (Maintainerr pattern):** "delete Dune in 14 days" quarantines the
+item (visible "Leaving Soon" Emby collection, best-effort) — the daily
+4:30 AM `cleanup_sweep` executes only items whose grace period elapsed;
+"keep Dune" reprieves any time before that. Actions are graduated: `delete`
+(files removed + import-list exclusion) or `unmonitor` (files kept).
+Retention rules ("keep the newest 10 episodes of X") prune older episode
+files each sweep. Fail-safe invariant throughout: a service that can't be
+reached means the item is *skipped*, never actioned — unknown state = no
+action.
+
 ---
 
 ## 3. Data Flow
@@ -501,7 +533,7 @@ All API keys in **password manager **, injected via `.env` → Docker `env_file`
 
 ### Why `create_react_agent` instead of custom StateGraph
 
-The ReAct loop handles the tool-call cycle automatically. For a tool-heavy agent with 92 tools, this is simpler and more reliable than hand-wiring a custom graph. The system prompt constrains behavior sufficiently.
+The ReAct loop handles the tool-call cycle automatically. For a tool-heavy agent with 102 tools, this is simpler and more reliable than hand-wiring a custom graph. The system prompt constrains behavior sufficiently.
 
 ### Why strings instead of structured returns
 

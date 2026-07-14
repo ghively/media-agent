@@ -119,3 +119,25 @@ library:
   naming_conventions:
     movies: "/movies/{title} ({year})/{title} ({year}).{ext}"
     tv: "/tv/{show}/Season {season:02d}/{show} - s{season:02d}e{episode:02d} - {title}.{ext}"
+
+users:
+  # Roles for the request/approval loop (seerr pattern). Leave admins EMPTY
+  # to keep the role system OFF — every interface then has full control,
+  # exactly as before (single-owner deployment).
+  #
+  # With admins set, listed Telegram chats (and all local interfaces: CLI,
+  # dashboard, API) keep full control; every other allowed Telegram chat
+  # becomes a *requester*: their "add X" goes into an approval queue with a
+  # rolling request quota, and admins get a push to approve/deny.
+  admins: []                    # e.g. ["123456789"]
+  names: {}                     # optional chat-id → name, e.g. {"987654": "alice"}
+  request_limit:                # rolling window quota for requesters
+    count: 5                    # 0 = unlimited
+    days: 7
+  overrides: {}                 # per-chat quota, e.g. {"987654": {count: 10}}
+
+cleanup:
+  # Quarantine-before-delete: "delete X in N days" holds the item in a
+  # 'Leaving Soon' ledger (and Emby collection) for the grace period; the
+  # daily sweep at 4:30 AM executes it unless someone says "keep X".
+  grace_days: 7

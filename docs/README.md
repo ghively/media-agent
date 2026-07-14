@@ -9,7 +9,7 @@
 | **[../README.md](../README.md)** | Project overview, quick start, interface reference | Everyone (start here) |
 | **[../CLAUDE.md](../CLAUDE.md)** | AI development context — conventions, patterns, gotchas | AI agents working on this codebase |
 | **[../ARCHITECTURE.md](../ARCHITECTURE.md)** | System architecture, data flow, component reference | Architects, developers |
-| **[tool-reference.md](tool-reference.md)** | Complete reference for all 92 tools | Developers, tool authors |
+| **[tool-reference.md](tool-reference.md)** | Complete reference for all 102 tools | Developers, tool authors |
 | **[development-guide.md](development-guide.md)** | Step-by-step guide to developing on this project | New developers, AI agents |
 | **[deployment-guide.md](deployment-guide.md)** | Build, deploy, configure, troubleshoot | Operators, DevOps |
 | **[api-reference.md](api-reference.md)** | OpenAI-compatible API specification | API consumers, Open WebUI admins |
@@ -34,7 +34,7 @@
 
 ## Project Facts
 
-- **92 tools** across 20 source files
+- **102 tools** across 20 source files
 - **~8,000 lines** of Python
 - **1 Docker container** on your-gpu-host
 - **3 physical hosts** in the media stack (your-gpu-host, your-nas, your-media-host)

@@ -145,6 +145,28 @@ try:
 except ImportError:
     _prowlarr_tools = []
 
+# Request/approval loop (seerr pattern)
+try:
+    from src.tools.requests_tools import (
+        list_media_requests, approve_media_request, deny_media_request,
+    )
+    _request_tools = [list_media_requests, approve_media_request,
+                      deny_media_request]
+except ImportError:
+    _request_tools = []
+
+# Library cleanup (Maintainerr pattern: quarantine, retention, rules)
+try:
+    from src.tools.cleanup_tools import (
+        cleanup_status, cleanup_schedule, cleanup_keep, cleanup_run_now,
+        cleanup_set_retention, cleanup_list_rules, cleanup_remove_rule,
+    )
+    _cleanup_tools = [cleanup_status, cleanup_schedule, cleanup_keep,
+                      cleanup_run_now, cleanup_set_retention,
+                      cleanup_list_rules, cleanup_remove_rule]
+except ImportError:
+    _cleanup_tools = []
+
 # Torrents (qBittorrent Web API)
 try:
     from src.tools.qbittorrent import (
@@ -183,4 +205,5 @@ all_tools = (
     + _library_tools + _rom_library_tools
     + _podcast_tools + _twitch_tools + _komga_tools + _calibre_tools
     + _lidarr_tools + _prowlarr_tools + _qbittorrent_tools
+    + _request_tools + _cleanup_tools
 )

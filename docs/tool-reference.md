@@ -1,6 +1,6 @@
 # Media Agent Tool Reference
 
-Complete reference for all 70 registered LangGraph tools in the media-agent project.
+Complete reference for all 102 registered LangGraph tools in the media-agent project.
 
 ## Summary
 
@@ -19,8 +19,10 @@ Complete reference for all 70 registered LangGraph tools in the media-agent proj
 | ROMs | 4 | Retro game ROM downloads and verification |
 | ROM Library | 4 | Header-level ROM identification, metadata, deduplication, and debugging |
 | Library | 5 | Filesystem inventory, duplicate detection, and naming convention management |
+| Requests | 3 | Approval-gated request queue (list, approve, deny) with rolling per-user quotas |
+| Cleanup | 7 | Quarantine-before-delete scheduling, reprieve, retention rules, rule management |
 
-**Total: 92 tools registered**
+**Total: 102 tools registered**
 
 > The 22 newest tools (podcasts, Twitch, Komga comics, Calibre ebooks,
 > Lidarr, Prowlarr, qBittorrent) are summarized in
@@ -53,13 +55,17 @@ Found 2 result(s):
 
 ---
 
-### `add_tv_show(tvdb_id: int, title: str) -> str`
+### `add_tv_show(tvdb_id: int, title: str, season: int = 0, quality_profile_id: int = 0, root_folder: str = "") -> str`
 
-Add a TV show to the monitored library by its TVDB ID.
+Add a TV show to the monitored library by its TVDB ID. With `season=N` only
+that season is monitored and searched (season-level requests); optional
+quality profile / root folder override the configured defaults.
 
 **Parameters:**
 - `tvdb_id` (int): TVDB ID of the show (from search_tv)
 - `title` (str): Show title
+- `season` (int): monitor/search only this season (0 = whole series)
+- `quality_profile_id` (int), `root_folder` (str): optional routing overrides
 
 **API Called:** Sonarr v3 API - `POST /api/v3/series`
 
@@ -1885,3 +1891,39 @@ Config: `services.prowlarr.url` + `api_key`.
 Config: `services.qbittorrent.url`, `username`, `password`. When configured,
 the router prefers qBittorrent over Download Station for magnet links and
 "list torrents".
+
+### Requests — approval loop (`src/tools/requests_tools.py`)
+
+The seerr pattern, conversational: non-admin Telegram users' "add X" becomes
+a pending request (rolling quota enforced); admins approve or deny; the
+scheduler's availability sweep notifies the requester when the item actually
+lands in Emby. Role config lives in `users:` (settings.yaml) — with
+`users.admins` empty the whole system is off and adds are direct.
+
+- `list_media_requests(status="")` — the request queue (filter: pending/approved/denied/available)
+- `approve_media_request(request_id)` — approve and run the Sonarr/Radarr add
+- `deny_media_request(request_id, reason="")` — deny with an optional reason
+
+Router phrases: "add Severance season 2" (season-scoped request), "list
+requests", "approve #3" / "deny #3 because …", "my requests" (own list +
+quota).
+
+### Cleanup — quarantine & retention (`src/tools/cleanup_tools.py`)
+
+Maintainerr's safe-cleanup patterns. Nothing deletes immediately: items sit
+in a "Leaving Soon" ledger (and best-effort Emby collection) for a grace
+period (`cleanup.grace_days`, default 7) and are reprievable until the daily
+4:30 AM sweep executes them. Fail-safe invariant: if Sonarr/Radarr can't be
+reached while evaluating an item, it's skipped — unknown state = no action.
+
+- `cleanup_status()` — the "leaving soon" list with days remaining
+- `cleanup_schedule(title, days=0, action="delete")` — quarantine an item; `action="unmonitor"` keeps files but stops future grabs; `delete` removes files and adds an import-list exclusion
+- `cleanup_keep(title)` — reprieve (cancel a scheduled action)
+- `cleanup_run_now()` — run the sweep immediately
+- `cleanup_set_retention(series_title, keep_last)` — keep only the newest N episodes, pruning older files each sweep
+- `cleanup_list_rules()` / `cleanup_remove_rule(rule_id)` — manage stored rules
+
+Router phrases: "delete Dune in 14 days", "what's leaving soon?", "keep
+Dune", "keep the newest 10 episodes of NewsShow", "run cleanup now",
+"auto-approve requests from alice", "auto-approve anything under 3 seasons",
+"always send anime to /media/anime", "list rules", "remove rule #2".

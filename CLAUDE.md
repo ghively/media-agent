@@ -51,15 +51,19 @@ User Input (CLI/API/Dashboard)
     │
     ▼
 Deterministic router (src/graphs/router.py)   ← tried FIRST, no LLM
-    │ ~60 intent groups across ALL domains (politeness/filler is stripped,
+    │ ~83 intent groups across ALL domains (politeness/filler is stripped,
     │ so "hey can you check the queue please" routes like "check the queue"): queue/health/disk/search/add,
     │ ROMs & emulation, YouTube (URLs + subscriptions), Audible, Bandcamp,
-    │ library maintenance, SABnzbd/DS, quality profiles, Emby search
+    │ library maintenance, SABnzbd/DS, quality profiles, Emby search,
+    │ media requests (list/approve/deny/quota), cleanup (quarantine/keep/
+    │ retention), auto-approve & routing rules
     │ media URLs dispatch by type: youtube/bandcamp/magnet/.torrent/.nzb
     │ bulk/irreversible ops (ROM sets, renames, collection sync) confirm first
     │ handled? → tool call(s) → instant reply (recorded into agent memory)
     │ no match ▼
-LangGraph create_react_agent(llm, 92 tools)   via run_agent()/stream_agent()
+LangGraph create_react_agent(llm, 102 tools)   via run_agent()/stream_agent()
+    │ role gate: with users.admins set, non-admin Telegram chats never reach
+    │ the LLM — their add flows become approval-gated requests (seerr loop)
     │ domain-scoped: an unambiguous message binds only that domain's ~10
     │ tools (src/graphs/scoping.py) — small models pick from a short menu
     │
@@ -87,9 +91,13 @@ Formatted response → User
 src/
 ├── main.py              # CLI entry: --serve | --interactive | --query | --health
 ├── config.py            # Settings singleton: YAML + ${ENV_VAR} substitution
-├── scheduler.py         # APScheduler: health(30m), missing(12h), cleanup(3am)
+├── scheduler.py         # APScheduler: health(30m), missing(12h), report(3am), availability(20m), cleanup sweep(4:30am)
+├── store.py             # aiosqlite state: requests, quarantine ledger, rules
+├── users.py             # Roles (users.admins) + rolling request quotas
+├── notify.py            # Webhook/Telegram pushes: notify, notify_chat, notify_admins
 ├── engine/
-│   └── types.py         # Pydantic models: MediaItem, ContentType, etc.
+│   ├── types.py         # Pydantic models: MediaItem, ContentType, etc.
+│   └── rules.py         # Pure evaluation of auto-approve/routing rules
 ├── llm/
 │   └── client.py        # MediaLLM: circuit breaker (CLOSED→OPEN→HALF_OPEN)
 ├── graphs/
@@ -97,6 +105,8 @@ src/
 │   └── router.py        # Deterministic intent router (fast path, no LLM)
 ├── tools/               # LangChain @tool functions (API-backed)
     │   ├── registry.py      # ← all_tools aggregation (THE import point)
+    │   ├── requests_tools.py # 3 tools + request lifecycle: create/approve/deny, quotas, availability sweep
+    │   ├── cleanup_tools.py # 7 tools: quarantine schedule/keep/status, retention, rules, sweep
     │   ├── sonarr.py        # 12 tools: search, add, list, queue, history, calendar, health, missing, quality profiles, root folders, refresh, season search
     │   ├── radarr.py        # 10 tools: search, add, list, queue, history, health, missing, quality profiles, root folders, refresh
     │   ├── emby.py          # 5 tools: search, recent, libraries, scan, get_item
@@ -313,6 +323,9 @@ This agent is part of a larger homelab:
 | ~~Low~~ | Twitch provider (streamlink) | ✅ Done |
 | ~~Low~~ | Comic provider (Komga API) | ✅ Done — set `services.komga` |
 | ~~Low~~ | Ebook provider (Calibre API) | ✅ Done — set `services.calibre` |
+| ~~High~~ | Request/approval loop (seerr pattern): roles, quotas, availability pushes | ✅ Done — set `users.admins` to enable |
+| ~~Medium~~ | Cleanup engine (Maintainerr pattern): quarantine, retention, graduated actions | ✅ Done — `cleanup.grace_days`, daily sweep |
+| ~~Medium~~ | NL auto-approve/routing rules ("auto-approve under 3 seasons") | ✅ Done — stored in the state DB |
 
 ---
 

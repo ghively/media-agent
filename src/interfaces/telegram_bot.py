@@ -26,11 +26,20 @@ _TELEGRAM_MSG_LIMIT = 4000  # hard API cap is 4096 chars
 async def _answer(text: str, thread_id: str) -> str:
     from src.graphs.conversational import record_exchange, run_agent
     from src.graphs.router import try_route
+    from src.users import is_admin
 
     reply = await try_route(text, thread_id)
     if reply is not None:
         await record_exchange(thread_id, text, reply)
         return reply
+    if not is_admin(thread_id):
+        # Non-admins never reach the LLM agent: its toolset includes direct
+        # add/rename/delete tools, which would bypass the role gate the
+        # router enforces. The deterministic path covers everything a
+        # requester-tier user is allowed to do.
+        return ("I didn't catch that. You can request media ('add Severance "
+                "season 2'), check on things ('what's downloading?', 'my "
+                "requests'), or say 'help' for the full list.")
     return await run_agent(text, thread_id)
 
 
