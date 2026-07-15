@@ -3,10 +3,12 @@ services:
     build: .
     container_name: media-agent
     restart: unless-stopped
-    # Bind to loopback only. The dashboard/API drive the full agent; expose
-    # them beyond localhost via a reverse proxy or VPN with auth, not directly.
+    # Published on the LAN alongside the other gh-nvidia services (owner
+    # decision 2026-07-15). NOTE: the dashboard/API drive the full agent and
+    # ship no built-in auth — this trusts the LAN. Put a reverse proxy with
+    # auth in front, or move back to a loopback bind, if that changes.
     ports:
-      - "127.0.0.1:8088:8088"
+      - "0.0.0.0:8088:8088"
     env_file:
       - .env
     volumes:
