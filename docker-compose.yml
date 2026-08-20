@@ -3,7 +3,7 @@ services:
     build: .
     container_name: media-agent
     restart: unless-stopped
-    # Published on the LAN alongside the other media-gpu-host services (owner
+    # Published on the LAN alongside the other services on this host (owner
     # decision 2026-07-15). NOTE: the dashboard/API drive the full agent and
     # ship no built-in auth — this trusts the LAN. Put a reverse proxy with
     # auth in front, or move back to a loopback bind, if that changes.

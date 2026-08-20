@@ -1125,7 +1125,6 @@ All credentials in password manager. Variable names only — never values.
 | `PROWLARR_API_KEY` | TBD (after Prowlarr deploy) | Phase 2 |
 | `QBITTORRENT_USER/PASS` | TBD | Phase 2 |
 | `AUDIBLE_AUTH` | File (audible-cli auth.json) | Phase 3 |
-| `IPTORRENTS_SESSION` | Prowlarr-managed | Phase 2 |
 
 ---
 
