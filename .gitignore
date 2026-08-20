@@ -22,10 +22,16 @@ venv/
 
 # AI session state (Hermes agent-lab)
 .remember/
+.claude/
 
 # Dashboard build artifacts
 dashboard/node_modules/
 src/static/
+
+# Test coverage
+coverage/
+.coverage
+htmlcov/
 
 # OS
 .DS_Store
