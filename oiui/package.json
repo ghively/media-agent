@@ -1,0 +1,24 @@
+{
+  "name": "media-agent-oiui-poc",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"turbo run dev --filter=@repo/app\" \"pnpm run dev:agent\" --names app,agent --kill-others",
+    "dev:app": "turbo run dev --filter='@repo/app'",
+    "dev:agent": "cd apps/agent && uv sync && uv run uvicorn main:app --host 127.0.0.1 --port 8123 --reload",
+    "dev:mcp": "turbo run dev --filter='open-intelligent-ui-mcp'",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "clean": "turbo run clean"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.4",
+    "concurrently": "^9.1.2"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "pnpm": {
+    "overrides": {
+      "esbuild": "^0.27.3"
+    }
+  }
+}
